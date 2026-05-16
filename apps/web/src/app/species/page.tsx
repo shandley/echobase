@@ -125,18 +125,8 @@ export default async function SpeciesListPage() {
               return (
                 <tr
                   key={s.ncbi_tax_id}
-                  style={{
-                    backgroundColor: isEven ? "var(--color-base)" : "var(--color-surface)",
-                    borderBottom: "1px solid var(--color-border-subtle)",
-                  }}
-                  onMouseEnter={(e) => {
-                    (e.currentTarget as HTMLTableRowElement).style.backgroundColor =
-                      "var(--color-elevated)";
-                  }}
-                  onMouseLeave={(e) => {
-                    (e.currentTarget as HTMLTableRowElement).style.backgroundColor =
-                      isEven ? "var(--color-base)" : "var(--color-surface)";
-                  }}
+                  className={isEven ? "species-row-even" : "species-row-odd"}
+                  style={{ borderBottom: "1px solid var(--color-border-subtle)" }}
                 >
                   {/* Species name */}
                   <td style={{ padding: "0.625rem 1rem" }}>

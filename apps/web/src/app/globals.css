@@ -54,3 +54,9 @@ body {
 
 /* Tabular numerals for data columns */
 .tabular { font-variant-numeric: tabular-nums; }
+
+/* Species table -- CSS hover so the page stays a Server Component */
+.species-row-even { background-color: var(--color-base); }
+.species-row-odd  { background-color: var(--color-surface); }
+.species-row-even:hover,
+.species-row-odd:hover { background-color: var(--color-elevated); }
