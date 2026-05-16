@@ -38,8 +38,8 @@ from transformers import EsmModel, EsmTokenizer
 MODEL_ID     = "facebook/esm2_t33_650M_UR50D"
 EMBED_DIM    = 1280
 MAX_SEQ_LEN  = 1022   # ESM2 hard limit (excluding CLS/EOS tokens)
-GPU_BATCH    = 32     # sequences per forward pass; tune if OOM
-DB_PAGE_SIZE = 2000   # rows per Supabase query
+GPU_BATCH    = 128    # sequences per forward pass (H100 80GB handles this easily)
+DB_PAGE_SIZE = 1000   # Supabase PostgREST default max rows -- do not exceed
 
 ENV_FILE  = Path("/storage3/fs1/shandley/Active/echobase/.env")
 EMBED_DIR = Path("/storage3/fs1/shandley/Active/echobase/embeddings/protein")
@@ -100,16 +100,25 @@ def get_all_species(client) -> list[dict]:
 
 
 def get_proteins_for_species(client, species_id: int) -> list[dict]:
-    """Fetch all proteins for a species, paginating through DB_PAGE_SIZE rows."""
+    """Fetch all proteins for a species, paginating through DB_PAGE_SIZE rows.
+    Retries each page up to 3 times on transient Supabase statement timeouts."""
     rows: list[dict] = []
     offset = 0
     while True:
-        result = client.from_("proteins") \
-            .select("id, ncbi_protein_accession, species_id, sequence") \
-            .eq("species_id", species_id) \
-            .order("id") \
-            .range(offset, offset + DB_PAGE_SIZE - 1) \
-            .execute()
+        for attempt in range(3):
+            try:
+                result = client.from_("proteins") \
+                    .select("id, ncbi_protein_accession, species_id, sequence") \
+                    .eq("species_id", species_id) \
+                    .order("id") \
+                    .range(offset, offset + DB_PAGE_SIZE - 1) \
+                    .execute()
+                break
+            except Exception as e:
+                if attempt == 2:
+                    raise
+                log(f"  Page {offset}: retrying after error: {e}")
+                time.sleep(10 * (attempt + 1))
         batch = result.data or []
         rows.extend(batch)
         if len(batch) < DB_PAGE_SIZE:
@@ -150,6 +159,9 @@ def embed_species(
 
     log(f"  {name}: embedding {len(valid):,} proteins...")
     t0 = time.time()
+
+    # Sort by sequence length -- reduces padding, improves GPU utilisation
+    valid.sort(key=lambda r: len(r["sequence"]))
 
     protein_ids:   list[int]   = []
     accessions:    list[str]   = []
@@ -214,9 +226,11 @@ def main() -> None:
         "HF_HOME", "/storage3/fs1/shandley/Active/echobase/models"
     )
     tokenizer = EsmTokenizer.from_pretrained(MODEL_ID)
-    model = EsmModel.from_pretrained(MODEL_ID).to(device).eval()
+    # bf16 inference: ~2x faster on H100, numerically safe for ESM2
+    dtype = torch.bfloat16 if device.type == "cuda" else torch.float32
+    model = EsmModel.from_pretrained(MODEL_ID, torch_dtype=dtype).to(device).eval()
     n_params = sum(p.numel() for p in model.parameters())
-    log(f"Model ready: {n_params/1e6:.0f}M parameters")
+    log(f"Model ready: {n_params/1e6:.0f}M parameters | dtype: {dtype}")
 
     log("Connecting to Supabase...")
     client = create_client(

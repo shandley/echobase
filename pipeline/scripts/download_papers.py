@@ -243,8 +243,18 @@ def fetch_pubtator(pmids: list[int]) -> list[dict]:
 
 def run_pubtator(client) -> None:
     log("Phase 2: fetching PMIDs from papers table...")
-    result = client.from_("papers").select("pmid, id").execute()
-    papers_map = {row["pmid"]: row["id"] for row in result.data}
+    # Paginate -- Supabase caps single response at 1,000 rows
+    all_rows: list[dict] = []
+    offset = 0
+    while True:
+        result = client.from_("papers").select("pmid, id") \
+            .range(offset, offset + 999).execute()
+        batch = result.data or []
+        all_rows.extend(batch)
+        if len(batch) < 1000:
+            break
+        offset += 1000
+    papers_map = {row["pmid"]: row["id"] for row in all_rows}
     pmids = list(papers_map.keys())
     log(f"  {len(pmids):,} papers to annotate")
 
