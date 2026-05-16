@@ -16,6 +16,8 @@ export type SpeciesSummary = Pick<
   | "metadata"
 >;
 
+export type Paper = Database["public"]["Tables"]["papers"]["Row"];
+
 export async function getAllSpecies(): Promise<SpeciesSummary[]> {
   const client = await createClient();
   const { data, error } = await client
@@ -64,4 +66,26 @@ export async function getRelatedSpecies(genus: string, excludeTaxId: number): Pr
     .limit(5);
 
   return (data ?? []) as SpeciesSummary[];
+}
+
+export async function searchSpecies(query: string): Promise<SpeciesSummary[]> {
+  const client = await createClient();
+  const { data } = await client
+    .from("species")
+    .select(
+      "id, ncbi_tax_id, scientific_name, common_name, genus, genome_assembly_accession, genome_size_bp, annotation_status, refseq_category, metadata",
+    )
+    .or(
+      `scientific_name.plfts(english).${query},common_name.plfts(english).${query},genus.plfts(english).${query}`,
+    )
+    .order("scientific_name")
+    .limit(20);
+
+  return (data ?? []) as SpeciesSummary[];
+}
+
+export async function searchPapers(query: string): Promise<Paper[]> {
+  // Papers table is currently empty; wired up for when the literature pipeline loads.
+  void query;
+  return [];
 }

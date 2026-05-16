@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import Link from "next/link";
+import { SearchBox } from "@/components/SearchBox";
 import "./globals.css";
 
 const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
@@ -15,7 +16,7 @@ const NAV_LINKS = [
   { href: "/species", label: "Species", active: true },
   { href: "/genes",    label: "Genes",    active: false },
   { href: "/proteins", label: "Proteins", active: false },
-  { href: "/search",   label: "Search",   active: false },
+  { href: "/search",   label: "Search",   active: true },
 ];
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -84,6 +85,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                   {label}
                 </Link>
               ))}
+            </div>
+
+            <div style={{ marginLeft: "auto" }}>
+              <SearchBox size="sm" placeholder="Search…" />
             </div>
           </nav>
         </header>
