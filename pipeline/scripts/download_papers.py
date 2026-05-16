@@ -141,17 +141,24 @@ def run_pubmed(client) -> list[int]:
     inserted = 0
 
     for start in range(0, total, FETCH_BATCH):
-        fetch_handle = retry(lambda s=start: Entrez.efetch(
-            db="pubmed",
-            rettype="xml",
-            retmode="xml",
-            retstart=s,
-            retmax=FETCH_BATCH,
-            webenv=webenv,
-            query_key=qkey,
-        ))
-        batch_data = Entrez.read(fetch_handle)
-        fetch_handle.close()
+        # Non-fatal batch fetch: a single bad batch (400/503) should not crash
+        # the whole run. Log it and continue to the next batch.
+        try:
+            fetch_handle = retry(lambda s=start: Entrez.efetch(
+                db="pubmed",
+                rettype="xml",
+                retmode="xml",
+                retstart=s,
+                retmax=FETCH_BATCH,
+                webenv=webenv,
+                query_key=qkey,
+            ))
+            batch_data = Entrez.read(fetch_handle)
+            fetch_handle.close()
+        except Exception as e:
+            log(f"  Skipping batch {start}-{start+FETCH_BATCH}: {e}")
+            time.sleep(5.0)
+            continue
 
         for article in batch_data.get("PubmedArticle", []):
             row = parse_record(article)
