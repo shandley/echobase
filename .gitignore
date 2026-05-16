@@ -1,0 +1,40 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Vercel
+.vercel
+
+# Build outputs
+.next/
+out/
+dist/
+build/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+
+# macOS
+.DS_Store
+
+# Logs
+*.log
+
+# Editor
+.idea/
+.vscode/
+
+# pnpm
+.pnpm-approved-builds.json
+
+# Supabase local dev
+supabase/.branches/
+supabase/.temp/

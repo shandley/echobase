@@ -1,0 +1,15 @@
+{
+  "name": "echobase",
+  "private": true,
+  "version": "0.1.0",
+  "engines": {
+    "node": ">=20",
+    "pnpm": ">=9"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@biomejs/biome",
+      "sharp"
+    ]
+  }
+}
