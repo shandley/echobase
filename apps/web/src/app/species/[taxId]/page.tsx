@@ -74,12 +74,9 @@ function AssemblyBadge({ level }: { level: string | null }) {
   );
 }
 
-function Stat({ label, value, mono = true }: { label: string; value: string; mono?: boolean }) {
-  return (
-    <div style={{
-      padding: "1.125rem 1.25rem",
-      borderRight: "1px solid var(--color-border-subtle)",
-    }}>
+function Stat({ label, value, mono = true, href }: { label: string; value: string; mono?: boolean; href?: string }) {
+  const inner = (
+    <>
       <div style={{
         fontFamily: mono ? "var(--font-mono)" : "var(--font-sans)",
         fontSize: "1.25rem",
@@ -101,6 +98,31 @@ function Stat({ label, value, mono = true }: { label: string; value: string; mon
       }}>
         {label}
       </div>
+    </>
+  );
+
+  if (href) {
+    return (
+      <Link
+        href={href}
+        style={{
+          display: "block",
+          padding: "1.125rem 1.25rem",
+          borderRight: "1px solid var(--color-border-subtle)",
+          textDecoration: "none",
+        }}
+      >
+        {inner}
+      </Link>
+    );
+  }
+
+  return (
+    <div style={{
+      padding: "1.125rem 1.25rem",
+      borderRight: "1px solid var(--color-border-subtle)",
+    }}>
+      {inner}
     </div>
   );
 }
@@ -239,6 +261,7 @@ export default async function SpeciesDetailPage({ params }: Props) {
         <Stat
           label="In EchoBase"
           value={proteinCount > 0 ? formatNumber(proteinCount) : "Loading"}
+          href={`/species/${taxIdNum}/proteins`}
         />
         <div style={{ padding: "1.125rem 1.25rem" }}>
           <div style={{
