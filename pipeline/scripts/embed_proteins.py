@@ -1,17 +1,19 @@
 #!/usr/bin/env python3
 """
-EchoBase ESM2 protein embedding pipeline
+EchoBase ESM3 protein embedding pipeline
 
-Reads protein sequences directly from NCBI FASTA files on local storage
-(avoids Supabase REST API timeout issues on large sequence fetches).
-Computes mean-pooled ESM2-650M embeddings on GPU and saves per-species
-parquet files.
+Reads protein sequences from local NCBI FASTA files, computes
+mean-pooled ESM3-small (1536-dim) embeddings on GPU, and saves
+per-species parquet files.
+
+Model: EvolutionaryScale/esm3-sm-open-v1
+Embedding dim: 1536 (matches vector(1536) in Supabase schema)
 
 Output: one parquet per species at
   $EMBED_DIR/species_{ncbi_tax_id}.parquet
 
 Columns: ncbi_protein_accession (str), species_id (int),
-         embedding (list[float], len=1280)
+         embedding (list[float], len=1536)
 
 Idempotent: skips species whose parquet file already exists.
 
@@ -33,14 +35,16 @@ import pyarrow.parquet as pq
 import torch
 from Bio import SeqIO
 from dotenv import load_dotenv
+from esm.models.esm3 import ESM3
+from esm.tokenization import get_model_tokenizers
 from supabase import create_client
-from transformers import EsmModel, EsmTokenizer
 
 # ── configuration ────────────────────────────────────────────────────────────
 
-MODEL_ID    = "facebook/esm2_t33_650M_UR50D"
-MAX_SEQ_LEN = 1022   # ESM2 hard limit (excluding CLS/EOS tokens)
-GPU_BATCH   = 128    # sequences per forward pass
+MODEL_ID    = "esm3-sm-open-v1"
+EMBED_DIM   = 1536
+MAX_SEQ_LEN = 1022   # truncate very long sequences
+GPU_BATCH   = 64     # ESM3-small is larger than ESM2-650M; start conservative
 
 ENV_FILE  = Path("/storage3/fs1/shandley/Active/echobase/.env")
 EMBED_DIR = Path("/storage3/fs1/shandley/Active/echobase/embeddings/protein")
@@ -55,36 +59,42 @@ def log(msg: str) -> None:
     print(f"[{time.strftime('%H:%M:%S')}] {msg}", flush=True)
 
 
-def mean_pool(token_embeddings: torch.Tensor, attention_mask: torch.Tensor) -> torch.Tensor:
-    mask = attention_mask[:, 1:].unsqueeze(-1).float()
-    embs = token_embeddings[:, 1:, :]
-    return (embs * mask).sum(dim=1) / mask.sum(dim=1).clamp(min=1e-9)
+# ── ESM3 embedding ────────────────────────────────────────────────────────────
 
-
-def embed_batch(
-    model: EsmModel,
-    tokenizer: EsmTokenizer,
+def embed_batch_esm3(
+    model: ESM3,
+    tokenizers,
     sequences: list[str],
     device: torch.device,
 ) -> np.ndarray:
+    """Return (N, 1536) float32 mean-pooled embeddings via ESM3."""
     truncated = [s[:MAX_SEQ_LEN] for s in sequences]
-    enc = tokenizer(
+
+    # Tokenize all sequences
+    seq_tokens = tokenizers.sequence.batch_encode_plus(
         truncated,
         return_tensors="pt",
         padding=True,
         truncation=True,
-        max_length=MAX_SEQ_LEN + 2,
-    )
-    enc = {k: v.to(device) for k, v in enc.items()}
+        max_length=MAX_SEQ_LEN + 2,  # +2 for BOS/EOS
+    )["input_ids"].to(device)
+
     with torch.no_grad():
-        out = model(**enc)
-    return mean_pool(out.last_hidden_state, enc["attention_mask"]).cpu().numpy()
+        output = model.forward(sequence_tokens=seq_tokens)
+
+    # output.embeddings: (batch, seq_len, 1536)
+    # Create mask: 1 for real tokens (not padding), 0 for pad
+    pad_id = tokenizers.sequence.pad_token_id
+    mask = (seq_tokens != pad_id).float().unsqueeze(-1)  # (batch, seq_len, 1)
+
+    embeddings = output.embeddings  # (batch, seq_len, 1536)
+    pooled = (embeddings * mask).sum(dim=1) / mask.sum(dim=1).clamp(min=1e-9)
+    return pooled.cpu().float().numpy()
 
 
-# ── data loading from local FASTA ─────────────────────────────────────────────
+# ── data loading ──────────────────────────────────────────────────────────────
 
 def build_assembly_to_taxid() -> dict[str, int]:
-    """Map assembly accession → NCBI taxonomy ID from the assembly report."""
     mapping: dict[str, int] = {}
     with open(REPORT) as f:
         for line in f:
@@ -102,15 +112,9 @@ def build_assembly_to_taxid() -> dict[str, int]:
 def load_sequences_by_taxid(
     assembly_to_taxid: dict[str, int],
 ) -> dict[int, list[tuple[str, str]]]:
-    """
-    Parse all protein.faa files and group (accession, sequence) by taxId.
-    Deduplicates on accession -- GCF takes priority over GCA for the same
-    accession prefix where both exist.
-    """
     seen: set[str] = set()
     by_taxid: dict[int, list[tuple[str, str]]] = defaultdict(list)
 
-    # Process GCF files first so they take priority over GCA duplicates
     faa_files = sorted(DATA_DIR.glob("*/protein.faa"))
     gcf_first = sorted(faa_files, key=lambda p: (0 if p.parent.name.startswith("GCF") else 1))
 
@@ -118,27 +122,24 @@ def load_sequences_by_taxid(
         assembly = faa_file.parent.name
         tax_id   = assembly_to_taxid.get(assembly)
         if tax_id is None:
-            log(f"  WARNING: no taxid for {assembly}, skipping")
             continue
-
         for record in SeqIO.parse(faa_file, "fasta"):
             acc = record.id
             if acc in seen:
                 continue
             seq = str(record.seq)
-            if not seq:
-                continue
-            seen.add(acc)
-            by_taxid[tax_id].append((acc, seq))
+            if seq:
+                seen.add(acc)
+                by_taxid[tax_id].append((acc, seq))
 
     return dict(by_taxid)
 
 
-# ── embedding ─────────────────────────────────────────────────────────────────
+# ── per-species embedding ─────────────────────────────────────────────────────
 
 def embed_and_save(
-    model: EsmModel,
-    tokenizer: EsmTokenizer,
+    model: ESM3,
+    tokenizers,
     device: torch.device,
     tax_id: int,
     species_id: int,
@@ -149,8 +150,7 @@ def embed_and_save(
         log(f"  taxid {tax_id}: parquet exists, skipping")
         return
 
-    # Sort by length to minimise padding waste
-    proteins = sorted(proteins, key=lambda t: len(t[1]))
+    proteins = sorted(proteins, key=lambda t: len(t[1]))  # sort for padding efficiency
 
     accessions: list[str]        = []
     species_ids: list[int]       = []
@@ -159,22 +159,20 @@ def embed_and_save(
     t0 = time.time()
     for i in range(0, len(proteins), GPU_BATCH):
         chunk = proteins[i : i + GPU_BATCH]
-        accs  = [t[0] for t in chunk]
-        seqs  = [t[1] for t in chunk]
-        embs  = embed_batch(model, tokenizer, seqs, device)
+        embs  = embed_batch_esm3(model, tokenizers, [t[1] for t in chunk], device)
 
-        accessions.extend(accs)
+        accessions.extend(t[0] for t in chunk)
         species_ids.extend([species_id] * len(chunk))
         embeddings.extend(embs)
 
-        if (i // GPU_BATCH) % 50 == 0:
+        if (i // GPU_BATCH) % 25 == 0:
             done = min(i + GPU_BATCH, len(proteins))
             rate = done / max(time.time() - t0, 1)
             log(f"    {done:,}/{len(proteins):,} ({rate:.0f} seq/s)")
 
     table = pa.table({
-        "ncbi_protein_accession": pa.array(accessions, type=pa.string()),
-        "species_id":             pa.array(species_ids, type=pa.int64()),
+        "ncbi_protein_accession": pa.array(accessions,   type=pa.string()),
+        "species_id":             pa.array(species_ids,  type=pa.int64()),
         "embedding":              pa.array(
             [e.tolist() for e in embeddings],
             type=pa.list_(pa.float32()),
@@ -192,8 +190,7 @@ def embed_and_save(
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--species", type=int, default=None,
-                        help="NCBI taxonomy ID to embed a single species")
+    parser.add_argument("--species", type=int, default=None)
     args = parser.parse_args()
 
     load_dotenv(ENV_FILE)
@@ -205,45 +202,37 @@ def main() -> None:
 
     log(f"Loading {MODEL_ID}...")
     os.environ.setdefault("HF_HOME", "/storage3/fs1/shandley/Active/echobase/models")
-    dtype = torch.bfloat16 if device.type == "cuda" else torch.float32
-    model = EsmModel.from_pretrained(MODEL_ID, torch_dtype=dtype).to(device).eval()
-    tokenizer = EsmTokenizer.from_pretrained(MODEL_ID)
-    log(f"Model ready: {sum(p.numel() for p in model.parameters())/1e6:.0f}M params | {dtype}")
+    model: ESM3 = ESM3.from_pretrained(MODEL_ID, device=device)
+    model = model.eval()
+    tokenizers = get_model_tokenizers(MODEL_ID)
+    log("ESM3 model ready")
 
-    log("Building assembly → taxid map from local files...")
+    log("Building assembly → taxid map...")
     assembly_to_taxid = build_assembly_to_taxid()
-    log(f"  {len(assembly_to_taxid)} assemblies mapped")
 
     log("Loading sequences from FASTA files...")
     sequences_by_taxid = load_sequences_by_taxid(assembly_to_taxid)
-    log(f"  {sum(len(v) for v in sequences_by_taxid.values()):,} proteins across "
-        f"{len(sequences_by_taxid)} species")
+    total = sum(len(v) for v in sequences_by_taxid.values())
+    log(f"  {total:,} proteins across {len(sequences_by_taxid)} species")
 
     log("Fetching species IDs from Supabase...")
     client = create_client(os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_KEY"])
     result = client.from_("species").select("id, ncbi_tax_id").execute()
     taxid_to_sid = {row["ncbi_tax_id"]: row["id"] for row in result.data}
-    log(f"  {len(taxid_to_sid)} species in database")
 
-    tax_ids = (
-        [args.species] if args.species
-        else sorted(sequences_by_taxid.keys())
-    )
+    tax_ids = [args.species] if args.species else sorted(sequences_by_taxid.keys())
 
     job_start = time.time()
     for i, tax_id in enumerate(tax_ids, 1):
-        proteins  = sequences_by_taxid.get(tax_id, [])
+        proteins   = sequences_by_taxid.get(tax_id, [])
         species_id = taxid_to_sid.get(tax_id)
         log(f"\n[{i}/{len(tax_ids)}] taxid {tax_id} | {len(proteins):,} proteins")
 
-        if not proteins:
-            log("  No sequences found, skipping")
-            continue
-        if species_id is None:
-            log("  Not in Supabase species table, skipping")
+        if not proteins or species_id is None:
+            log("  Skipping -- no proteins or not in DB")
             continue
 
-        embed_and_save(model, tokenizer, device, tax_id, species_id, proteins)
+        embed_and_save(model, tokenizers, device, tax_id, species_id, proteins)
 
     files = list(EMBED_DIR.glob("species_*.parquet"))
     total_gb = sum(f.stat().st_size for f in files) / 1e9
