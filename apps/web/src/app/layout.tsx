@@ -7,36 +7,101 @@ const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
 const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: { default: "EchoBase", template: "%s | EchoBase" },
-  description: "A unified knowledge platform for Chiroptera genomics.",
+  title: { default: "EchoBase", template: "%s · EchoBase" },
+  description: "Unified genomics for Chiroptera. Sequence search, protein embeddings, and literature synthesis across 50+ annotated bat genomes.",
 };
+
+const NAV_LINKS = [
+  { href: "/species", label: "Species", active: true },
+  { href: "/genes",    label: "Genes",    active: false },
+  { href: "/proteins", label: "Proteins", active: false },
+  { href: "/search",   label: "Search",   active: false },
+];
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`${geistSans.variable} ${geistMono.variable} h-full`}>
-      <body className="min-h-full flex flex-col antialiased">
-        <header className="sticky top-0 z-40 border-b border-[var(--color-border)] bg-[var(--color-background)]/90 backdrop-blur">
-          <nav className="mx-auto flex h-14 max-w-7xl items-center gap-6 px-6">
+    <html
+      lang="en"
+      className={`${geistSans.variable} ${geistMono.variable}`}
+    >
+      <body>
+        <header
+          style={{
+            borderBottom: "1px solid var(--color-border-subtle)",
+            backgroundColor: "var(--color-base)",
+            position: "sticky",
+            top: 0,
+            zIndex: 40,
+          }}
+        >
+          <nav
+            style={{
+              maxWidth: "72rem",
+              margin: "0 auto",
+              padding: "0 1.5rem",
+              height: "48px",
+              display: "flex",
+              alignItems: "center",
+              gap: "1.75rem",
+            }}
+          >
             <Link
               href="/"
-              className="text-sm font-semibold tracking-wide text-[var(--color-accent)] hover:opacity-80"
+              style={{
+                color: "var(--color-text)",
+                fontWeight: 500,
+                fontSize: "0.9375rem",
+                letterSpacing: "-0.01em",
+                textDecoration: "none",
+                display: "flex",
+                alignItems: "baseline",
+                gap: "0.25rem",
+              }}
             >
-              ECHOBASE
+              EchoBase
+              <sup style={{
+                fontSize: "0.625rem",
+                fontWeight: 400,
+                color: "var(--color-text-secondary)",
+                letterSpacing: 0,
+                lineHeight: 1,
+              }}>β</sup>
             </Link>
-            <div className="h-4 w-px bg-[var(--color-border)]" />
-            <div className="flex items-center gap-5 text-sm text-[var(--color-text-muted)]">
-              <Link href="/species" className="hover:text-[var(--color-text)] transition-colors">
-                Species
-              </Link>
-              <span className="opacity-30">Genes</span>
-              <span className="opacity-30">Proteins</span>
-              <span className="opacity-30">Search</span>
+
+            <div style={{ display: "flex", alignItems: "center", gap: "1.25rem" }}>
+              {NAV_LINKS.map(({ href, label, active }) => (
+                <Link
+                  key={href}
+                  href={href}
+                  style={{
+                    fontSize: "0.875rem",
+                    color: active ? "var(--color-text-secondary)" : "var(--color-text-tertiary)",
+                    textDecoration: "none",
+                    transition: "color 150ms ease",
+                    pointerEvents: active ? "auto" : "none",
+                  }}
+                >
+                  {label}
+                </Link>
+              ))}
             </div>
           </nav>
         </header>
-        <main className="flex-1">{children}</main>
-        <footer className="border-t border-[var(--color-border)] py-6 text-center text-xs text-[var(--color-text-muted)]">
-          EchoBase · Chiroptera Genomics Platform · Data from NCBI
+
+        <main style={{ flex: 1 }}>{children}</main>
+
+        <footer
+          style={{
+            borderTop: "1px solid var(--color-border-subtle)",
+            padding: "1.25rem 1.5rem",
+            textAlign: "center",
+            fontSize: "0.75rem",
+            color: "var(--color-text-tertiary)",
+            fontFamily: "var(--font-mono)",
+            letterSpacing: "0.02em",
+          }}
+        >
+          EchoBase · Chiroptera Genomics · Data: NCBI
         </footer>
       </body>
     </html>
