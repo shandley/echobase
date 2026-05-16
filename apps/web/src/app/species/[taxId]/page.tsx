@@ -5,6 +5,9 @@ import {
   getSpeciesByTaxId,
   getProteinCountForSpecies,
   getRelatedSpecies,
+  getPapersForSpecies,
+  getPaperCountForSpecies,
+  type Paper,
 } from "@/lib/supabase/queries";
 import { formatGenomeSize, formatNumber } from "@/lib/utils/format";
 import type { Json } from "@/lib/supabase/types";
@@ -128,9 +131,11 @@ export default async function SpeciesDetailPage({ params }: Props) {
   const species = await getSpeciesByTaxId(taxIdNum);
   if (!species) notFound();
 
-  const [relatedSpecies, proteinCount] = await Promise.all([
+  const [relatedSpecies, proteinCount, recentPapers, paperCount] = await Promise.all([
     getRelatedSpecies(species.genus ?? "", taxIdNum),
     getProteinCountForSpecies(species.id),
+    getPapersForSpecies(species.id, 6),
+    getPaperCountForSpecies(species.id),
   ]);
 
   const meta = parseMeta(species.metadata);

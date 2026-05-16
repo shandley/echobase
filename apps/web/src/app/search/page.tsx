@@ -240,14 +240,79 @@ export default async function SearchPage({ searchParams }: Props) {
               <span style={{
                 marginLeft: "0.625rem",
                 fontFamily: "var(--font-mono)",
-                color: "var(--color-text-tertiary)",
+                color: paperResults.length > 0 ? "var(--color-accent)" : "var(--color-text-tertiary)",
               }}>
                 {paperResults.length}
               </span>
             </h2>
-            <p style={{ fontSize: "0.875rem", color: "var(--color-text-tertiary)" }}>
-              0 results — literature pipeline loading
-            </p>
+
+            {paperResults.length === 0 ? (
+              <p style={{ fontSize: "0.875rem", color: "var(--color-text-tertiary)" }}>
+                No papers matched &ldquo;{query}&rdquo;
+              </p>
+            ) : (
+              <div style={{
+                border: "1px solid var(--color-border)",
+                borderRadius: "4px",
+                overflow: "hidden",
+              }}>
+                {paperResults.map((paper, i) => (
+                  <Link
+                    key={paper.id}
+                    href={`/papers/${paper.pmid}`}
+                    className={i % 2 === 0 ? "paper-row-even" : "paper-row-odd"}
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "4rem 1fr auto",
+                      gap: "1rem",
+                      alignItems: "start",
+                      padding: "0.625rem 1rem",
+                      borderBottom: i < paperResults.length - 1
+                        ? "1px solid var(--color-border-subtle)"
+                        : "none",
+                      textDecoration: "none",
+                    }}
+                  >
+                    {/* Year */}
+                    <span style={{
+                      fontFamily: "var(--font-mono)",
+                      fontSize: "0.8125rem",
+                      color: "var(--color-text-secondary)",
+                      fontVariantNumeric: "tabular-nums",
+                      whiteSpace: "nowrap",
+                      paddingTop: "0.1rem",
+                    }}>
+                      {paper.year ?? "—"}
+                    </span>
+
+                    {/* Title + journal */}
+                    <div>
+                      <span style={{
+                        color: "var(--color-text)",
+                        fontSize: "0.875rem",
+                        display: "block",
+                        lineHeight: 1.45,
+                      }}>
+                        {paper.title}
+                      </span>
+                      {paper.journal && (
+                        <span style={{
+                          fontSize: "0.75rem",
+                          color: "var(--color-text-tertiary)",
+                          display: "block",
+                          marginTop: "0.15rem",
+                        }}>
+                          {paper.journal}
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Arrow */}
+                    <span style={{ color: "var(--color-text-tertiary)", paddingTop: "0.1rem" }}>↗</span>
+                  </Link>
+                ))}
+              </div>
+            )}
           </section>
 
         </div>

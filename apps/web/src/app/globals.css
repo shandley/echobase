@@ -60,3 +60,9 @@ body {
 .species-row-odd  { background-color: var(--color-surface); }
 .species-row-even:hover,
 .species-row-odd:hover { background-color: var(--color-elevated); }
+
+/* Papers table -- same pattern */
+.paper-row-even { background-color: var(--color-base); }
+.paper-row-odd  { background-color: var(--color-surface); }
+.paper-row-even:hover,
+.paper-row-odd:hover { background-color: var(--color-elevated); }
