@@ -187,3 +187,42 @@ export async function getPaperCountForSpecies(speciesId: number): Promise<number
     .eq("species_id", speciesId);
   return count ?? 0;
 }
+
+export type Protein = Database["public"]["Tables"]["proteins"]["Row"];
+
+export async function getProteinByAccession(accession: string): Promise<Protein | null> {
+  const client = await createClient();
+  const { data, error } = await client
+    .from("proteins")
+    .select("*")
+    .eq("ncbi_protein_accession", accession)
+    .single();
+
+  if (error) return null;
+  return data as Protein;
+}
+
+export async function getProteinsBySpecies(speciesId: number, limit = 20): Promise<Protein[]> {
+  const client = await createClient();
+  const { data, error } = await client
+    .from("proteins")
+    .select("id, ncbi_protein_accession, description, length, species_id, gene_id, sequence, embedding, created_at, alphafold_url")
+    .eq("species_id", speciesId)
+    .order("length", { ascending: false })
+    .limit(limit);
+
+  if (error) return [];
+  return (data ?? []) as Protein[];
+}
+
+export async function getSpeciesById(id: number): Promise<Species | null> {
+  const client = await createClient();
+  const { data, error } = await client
+    .from("species")
+    .select("*")
+    .eq("id", id)
+    .single();
+
+  if (error) return null;
+  return data as Species;
+}

@@ -451,6 +451,81 @@ export default async function SpeciesDetailPage({ params }: Props) {
           )}
         </div>
       </div>
+
+      {/* Recent literature */}
+      {recentPapers.length > 0 && (
+        <section style={{ marginTop: "2rem" }}>
+          <div style={{
+            display: "flex",
+            alignItems: "baseline",
+            justifyContent: "space-between",
+            marginBottom: "1rem",
+            paddingBottom: "0.5rem",
+            borderBottom: "1px solid var(--color-border-subtle)",
+          }}>
+            <h2 style={{
+              fontSize: "0.6875rem",
+              fontWeight: 500,
+              letterSpacing: "0.08em",
+              textTransform: "uppercase",
+              color: "var(--color-text-tertiary)",
+              margin: 0,
+            }}>
+              Literature
+            </h2>
+            <span style={{ fontSize: "0.75rem", color: "var(--color-text-tertiary)", fontFamily: "var(--font-mono)" }}>
+              {paperCount.toLocaleString()} papers
+            </span>
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: "0" }}>
+            {recentPapers.map((paper: Paper, i: number) => (
+              <Link
+                key={paper.pmid}
+                href={`/papers/${paper.pmid}`}
+                style={{
+                  display: "block",
+                  textDecoration: "none",
+                  padding: "0.75rem 0",
+                  borderBottom: "1px solid var(--color-border-subtle)",
+                  backgroundColor: i % 2 === 0 ? "transparent" : "transparent",
+                }}
+              >
+                <div style={{ display: "flex", gap: "1rem", alignItems: "flex-start" }}>
+                  <span style={{
+                    fontFamily: "var(--font-mono)",
+                    fontSize: "0.6875rem",
+                    color: "var(--color-text-tertiary)",
+                    flexShrink: 0,
+                    paddingTop: "0.125rem",
+                    minWidth: "2.5rem",
+                  }}>
+                    {paper.year ?? "—"}
+                  </span>
+                  <div>
+                    <div style={{
+                      fontSize: "0.875rem",
+                      color: "var(--color-text)",
+                      lineHeight: 1.4,
+                    }}>
+                      {paper.title}
+                    </div>
+                    {paper.journal && (
+                      <div style={{
+                        fontSize: "0.75rem",
+                        color: "var(--color-text-secondary)",
+                        marginTop: "0.25rem",
+                        fontStyle: "italic",
+                      }}>
+                        {paper.journal}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </Link>
+            ))}
+          </div>
+        </section>
+      )}
     </div>
   );
 }
