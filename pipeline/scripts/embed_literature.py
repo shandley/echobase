@@ -114,7 +114,14 @@ def main() -> None:
         embs = embed_texts(model, tokenizer, texts, device)
 
         for row, emb in zip(chunk, embs):
-            upsert_buf.append({"id": row["id"], "embedding": emb.tolist()})
+            # Include NOT NULL columns (pmid, title) to satisfy INSERT phase
+            # of ON CONFLICT DO UPDATE -- safe no-ops on the existing values.
+            upsert_buf.append({
+                "id":       row["id"],
+                "pmid":     row["pmid"],
+                "title":    row["title"],
+                "embedding": emb.tolist(),
+            })
 
         if len(upsert_buf) >= DB_UPSERT:
             client.from_("papers").upsert(upsert_buf, on_conflict="id").execute()
