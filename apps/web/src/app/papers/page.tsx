@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { getPapers, getEntityCountsForPapers } from "@/lib/supabase/queries";
 import type { Paper } from "@/lib/supabase/queries";
+import { stripHtml } from "@/lib/utils/format";
 
 export const metadata: Metadata = { title: "Papers" };
 
@@ -164,7 +165,7 @@ export default async function PapersListPage() {
                         display: "block",
                         fontSize: "0.875rem",
                       }}>
-                        {paper.title}
+                        {stripHtml(paper.title)}
                       </span>
                     </Link>
                     <span style={{

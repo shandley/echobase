@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { searchSpecies, searchPapers } from "@/lib/supabase/queries";
-import { formatGenomeSize } from "@/lib/utils/format";
+import { formatGenomeSize, stripHtml } from "@/lib/utils/format";
 import { SearchBox } from "@/components/SearchBox";
 import type { Json } from "@/lib/supabase/types";
 
@@ -293,7 +293,7 @@ export default async function SearchPage({ searchParams }: Props) {
                         display: "block",
                         lineHeight: 1.45,
                       }}>
-                        {paper.title}
+                        {stripHtml(paper.title)}
                       </span>
                       {paper.journal && (
                         <span style={{

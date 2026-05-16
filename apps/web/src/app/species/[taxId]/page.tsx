@@ -9,7 +9,7 @@ import {
   getPaperCountForSpecies,
   type Paper,
 } from "@/lib/supabase/queries";
-import { formatGenomeSize, formatNumber } from "@/lib/utils/format";
+import { formatGenomeSize, formatNumber, stripHtml } from "@/lib/utils/format";
 import type { Json } from "@/lib/supabase/types";
 
 interface Props {
@@ -530,7 +530,7 @@ export default async function SpeciesDetailPage({ params }: Props) {
                       color: "var(--color-text)",
                       lineHeight: 1.4,
                     }}>
-                      {paper.title}
+                      {stripHtml(paper.title)}
                     </div>
                     {paper.journal && (
                       <div style={{

@@ -7,6 +7,7 @@ import {
   getSpeciesForPaper,
 } from "@/lib/supabase/queries";
 import type { PaperEntity } from "@/lib/supabase/queries";
+import { stripHtml } from "@/lib/utils/format";
 
 interface Props {
   params: Promise<{ pmid: string }>;
@@ -135,9 +136,10 @@ export default async function PaperDetailPage({ params }: Props) {
   ]);
 
   const grouped = groupEntitiesByType(entities);
-  const titleTruncated = paper.title.length > 60
-    ? paper.title.slice(0, 60).trimEnd() + "…"
-    : paper.title;
+  const cleanTitle = stripHtml(paper.title);
+  const titleTruncated = cleanTitle.length > 60
+    ? cleanTitle.slice(0, 60).trimEnd() + "…"
+    : cleanTitle;
 
   return (
     <div style={{ maxWidth: "72rem", margin: "0 auto", padding: "2.5rem 1.5rem" }}>
@@ -171,7 +173,7 @@ export default async function PaperDetailPage({ params }: Props) {
         lineHeight: 1.3,
         fontStyle: "normal",
       }}>
-        {paper.title}
+        {cleanTitle}
       </h1>
 
       {/* Meta row */}

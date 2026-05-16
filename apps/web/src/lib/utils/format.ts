@@ -13,6 +13,12 @@ export function formatNumber(n: number | null | undefined): string {
   return n.toLocaleString();
 }
 
+/** Strip HTML tags from PubMed titles: "<i>Leptospira</i>" → "Leptospira" */
+export function stripHtml(text: string | null): string {
+  if (!text) return "";
+  return text.replace(/<[^>]+>/g, "");
+}
+
 /** Assembly level → color class mapping */
 export function assemblyLevelColor(level: string | null): string {
   switch (level?.toLowerCase()) {
