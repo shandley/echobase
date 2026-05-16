@@ -1,19 +1,16 @@
 #!/usr/bin/env python3
 """
-EchoBase ESM3 protein embedding pipeline
+EchoBase ESM2 protein embedding pipeline
 
-Reads protein sequences from local NCBI FASTA files, computes
-mean-pooled ESM3-small (1536-dim) embeddings on GPU, and saves
-per-species parquet files.
-
-Model: EvolutionaryScale/esm3-sm-open-v1
-Embedding dim: 1536 (matches vector(1536) in Supabase schema)
+Reads protein sequences from local NCBI FASTA files (avoids Supabase
+network timeouts on large sequence fetches), computes mean-pooled
+ESM2-650M (1280-dim) embeddings on GPU, and saves per-species parquets.
 
 Output: one parquet per species at
   $EMBED_DIR/species_{ncbi_tax_id}.parquet
 
 Columns: ncbi_protein_accession (str), species_id (int),
-         embedding (list[float], len=1536)
+         embedding (list[float], len=1280)
 
 Idempotent: skips species whose parquet file already exists.
 
@@ -35,16 +32,15 @@ import pyarrow.parquet as pq
 import torch
 from Bio import SeqIO
 from dotenv import load_dotenv
-from esm.models.esm3 import ESM3
-from esm.tokenization import get_model_tokenizers
 from supabase import create_client
+from transformers import EsmModel, EsmTokenizer
 
 # ── configuration ────────────────────────────────────────────────────────────
 
-MODEL_ID    = "esm3-sm-open-v1"
-EMBED_DIM   = 1536
-MAX_SEQ_LEN = 1022   # truncate very long sequences
-GPU_BATCH   = 64     # ESM3-small is larger than ESM2-650M; start conservative
+MODEL_ID    = "facebook/esm2_t33_650M_UR50D"
+EMBED_DIM   = 1280
+MAX_SEQ_LEN = 1022   # ESM2 hard limit (excluding CLS/EOS tokens)
+GPU_BATCH   = 128    # H100 80GB handles this easily
 
 ENV_FILE  = Path("/storage3/fs1/shandley/Active/echobase/.env")
 EMBED_DIR = Path("/storage3/fs1/shandley/Active/echobase/embeddings/protein")
@@ -59,40 +55,34 @@ def log(msg: str) -> None:
     print(f"[{time.strftime('%H:%M:%S')}] {msg}", flush=True)
 
 
-# ── ESM3 embedding ────────────────────────────────────────────────────────────
+def mean_pool(token_embeddings: torch.Tensor, attention_mask: torch.Tensor) -> torch.Tensor:
+    """Mean-pool over sequence length, excluding CLS token and padding."""
+    mask = attention_mask[:, 1:].unsqueeze(-1).float()
+    embs = token_embeddings[:, 1:, :]
+    return (embs * mask).sum(dim=1) / mask.sum(dim=1).clamp(min=1e-9)
 
-def embed_batch_esm3(
-    model: ESM3,
-    tokenizers,
+
+def embed_batch(
+    model: EsmModel,
+    tokenizer: EsmTokenizer,
     sequences: list[str],
     device: torch.device,
 ) -> np.ndarray:
-    """Return (N, 1536) float32 mean-pooled embeddings via ESM3."""
     truncated = [s[:MAX_SEQ_LEN] for s in sequences]
-
-    # Tokenize all sequences
-    seq_tokens = tokenizers.sequence.batch_encode_plus(
+    enc = tokenizer(
         truncated,
         return_tensors="pt",
         padding=True,
         truncation=True,
-        max_length=MAX_SEQ_LEN + 2,  # +2 for BOS/EOS
-    )["input_ids"].to(device)
-
+        max_length=MAX_SEQ_LEN + 2,
+    )
+    enc = {k: v.to(device) for k, v in enc.items()}
     with torch.no_grad():
-        output = model.forward(sequence_tokens=seq_tokens)
-
-    # output.embeddings: (batch, seq_len, 1536)
-    # Create mask: 1 for real tokens (not padding), 0 for pad
-    pad_id = tokenizers.sequence.pad_token_id
-    mask = (seq_tokens != pad_id).float().unsqueeze(-1)  # (batch, seq_len, 1)
-
-    embeddings = output.embeddings  # (batch, seq_len, 1536)
-    pooled = (embeddings * mask).sum(dim=1) / mask.sum(dim=1).clamp(min=1e-9)
-    return pooled.cpu().float().numpy()
+        out = model(**enc)
+    return mean_pool(out.last_hidden_state, enc["attention_mask"]).cpu().numpy()
 
 
-# ── data loading ──────────────────────────────────────────────────────────────
+# ── data loading from local FASTA ─────────────────────────────────────────────
 
 def build_assembly_to_taxid() -> dict[str, int]:
     mapping: dict[str, int] = {}
@@ -112,6 +102,8 @@ def build_assembly_to_taxid() -> dict[str, int]:
 def load_sequences_by_taxid(
     assembly_to_taxid: dict[str, int],
 ) -> dict[int, list[tuple[str, str]]]:
+    """Parse all protein.faa files, group (accession, sequence) by taxId.
+    GCF files take priority over GCA to avoid duplicates."""
     seen: set[str] = set()
     by_taxid: dict[int, list[tuple[str, str]]] = defaultdict(list)
 
@@ -138,8 +130,8 @@ def load_sequences_by_taxid(
 # ── per-species embedding ─────────────────────────────────────────────────────
 
 def embed_and_save(
-    model: ESM3,
-    tokenizers,
+    model: EsmModel,
+    tokenizer: EsmTokenizer,
     device: torch.device,
     tax_id: int,
     species_id: int,
@@ -150,7 +142,7 @@ def embed_and_save(
         log(f"  taxid {tax_id}: parquet exists, skipping")
         return
 
-    proteins = sorted(proteins, key=lambda t: len(t[1]))  # sort for padding efficiency
+    proteins = sorted(proteins, key=lambda t: len(t[1]))  # minimize padding
 
     accessions: list[str]        = []
     species_ids: list[int]       = []
@@ -159,13 +151,13 @@ def embed_and_save(
     t0 = time.time()
     for i in range(0, len(proteins), GPU_BATCH):
         chunk = proteins[i : i + GPU_BATCH]
-        embs  = embed_batch_esm3(model, tokenizers, [t[1] for t in chunk], device)
+        embs  = embed_batch(model, tokenizer, [t[1] for t in chunk], device)
 
         accessions.extend(t[0] for t in chunk)
         species_ids.extend([species_id] * len(chunk))
         embeddings.extend(embs)
 
-        if (i // GPU_BATCH) % 25 == 0:
+        if (i // GPU_BATCH) % 50 == 0:
             done = min(i + GPU_BATCH, len(proteins))
             rate = done / max(time.time() - t0, 1)
             log(f"    {done:,}/{len(proteins):,} ({rate:.0f} seq/s)")
@@ -202,10 +194,10 @@ def main() -> None:
 
     log(f"Loading {MODEL_ID}...")
     os.environ.setdefault("HF_HOME", "/storage3/fs1/shandley/Active/echobase/models")
-    model: ESM3 = ESM3.from_pretrained(MODEL_ID, device=device)
-    model = model.eval()
-    tokenizers = get_model_tokenizers(MODEL_ID)
-    log("ESM3 model ready")
+    dtype = torch.bfloat16 if device.type == "cuda" else torch.float32
+    tokenizer = EsmTokenizer.from_pretrained(MODEL_ID)
+    model = EsmModel.from_pretrained(MODEL_ID, torch_dtype=dtype).to(device).eval()
+    log(f"Model ready: {sum(p.numel() for p in model.parameters())/1e6:.0f}M params | {dtype}")
 
     log("Building assembly → taxid map...")
     assembly_to_taxid = build_assembly_to_taxid()
@@ -229,10 +221,10 @@ def main() -> None:
         log(f"\n[{i}/{len(tax_ids)}] taxid {tax_id} | {len(proteins):,} proteins")
 
         if not proteins or species_id is None:
-            log("  Skipping -- no proteins or not in DB")
+            log("  Skipping")
             continue
 
-        embed_and_save(model, tokenizers, device, tax_id, species_id, proteins)
+        embed_and_save(model, tokenizer, device, tax_id, species_id, proteins)
 
     files = list(EMBED_DIR.glob("species_*.parquet"))
     total_gb = sum(f.stat().st_size for f in files) / 1e9
