@@ -70,17 +70,30 @@ async function retrievePapers(question: string): Promise<{ papers: MatchedPaper[
     } catch { /* fall through to keyword */ }
   }
 
-  // Keyword fallback: use full-text search over title + abstract
+  // Keyword fallback: ILIKE over title OR abstract for each meaningful word.
+  // Searches both columns with OR logic -- much better recall than title-only FTS.
+  const stopwords = new Set(["can", "you", "tell", "me", "about", "what", "how", "why",
+    "the", "and", "for", "are", "with", "that", "this", "have", "from"]);
+  const keywords = question
+    .toLowerCase()
+    .split(/\s+/)
+    .filter(w => w.length > 4 && !stopwords.has(w));
+
   const client = await createClient();
-  const { data } = await client
+  let query = client
     .from("papers")
     .select("id, pmid, title, abstract, journal, year, doi")
-    .textSearch("title", question.split(" ").filter(w => w.length > 3).join(" | "), {
-      type: "plain",
-      config: "english",
-    })
     .order("year", { ascending: false })
     .limit(8);
+
+  if (keywords.length > 0) {
+    const orFilter = keywords
+      .map(k => `title.ilike.%${k}%,abstract.ilike.%${k}%`)
+      .join(",");
+    query = query.or(orFilter);
+  }
+
+  const { data } = await query;
 
   return { papers: (data ?? []) as MatchedPaper[], method: "keyword" };
 }
