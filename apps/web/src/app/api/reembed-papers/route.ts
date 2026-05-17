@@ -12,6 +12,13 @@
 import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 
+function isAuthorized(request: Request): boolean {
+  const token = process.env.ADMIN_API_TOKEN;
+  if (!token) return false; // no token configured = endpoint disabled
+  const auth = request.headers.get("Authorization") ?? "";
+  return auth === `Bearer ${token}`;
+}
+
 const VOYAGE_URL = "https://api.voyageai.com/v1/embeddings";
 const BATCH_SIZE = 80; // texts per Voyage request (free tier safe)
 
@@ -32,6 +39,10 @@ async function embedBatch(texts: string[], apiKey: string): Promise<number[][] |
 }
 
 export async function POST(request: Request) {
+  if (!isAuthorized(request)) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   const voyageKey = process.env.VOYAGE_API_KEY;
   if (!voyageKey) {
     return NextResponse.json({ error: "VOYAGE_API_KEY not configured" }, { status: 503 });
