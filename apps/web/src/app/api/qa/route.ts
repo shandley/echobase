@@ -66,8 +66,7 @@ async function embedQuery(text: string): Promise<number[] | null> {
     } catch { /* fall through */ }
   }
 
-  // Fallback: try Voyage AI
-  const voyageKey = process.env.VOYAGE_API_KEY;
+  // Secondary Voyage fallback (voyageKey already declared above)
   if (voyageKey) {
     try {
       const response = await fetch("https://api.voyageai.com/v1/embeddings", {

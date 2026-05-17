@@ -75,7 +75,7 @@ export async function POST(request: Request) {
     id:        p.id,
     pmid:      p.pmid,
     title:     p.title,
-    embedding: embeddings[i],
+    embedding: embeddings[i] as unknown as string,
   }));
 
   await client.from("papers").upsert(upsertRows, { onConflict: "id" }).execute();
