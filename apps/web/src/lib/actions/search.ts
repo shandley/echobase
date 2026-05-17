@@ -1,37 +1,40 @@
 "use server";
 import { createServiceClient } from "@/lib/supabase/server";
 
-async function embedQuery(text: string): Promise<number[]> {
-  const response = await fetch(
-    "https://api-inference.huggingface.co/pipeline/feature-extraction/NeuML/pubmedbert-base-embeddings",
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "User-Agent": "EchoBase/1.0",
+async function embedQuery(text: string): Promise<number[] | null> {
+  const hfToken = process.env.HF_TOKEN ?? process.env.HUGGINGFACE_TOKEN;
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    "User-Agent": "EchoBase/1.0",
+  };
+  if (hfToken) headers["Authorization"] = `Bearer ${hfToken}`;
+
+  try {
+    const response = await fetch(
+      "https://api-inference.huggingface.co/pipeline/feature-extraction/NeuML/pubmedbert-base-embeddings",
+      {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ inputs: text, options: { wait_for_model: true } }),
+        signal: AbortSignal.timeout(8_000),
       },
-      body: JSON.stringify({ inputs: text, options: { wait_for_model: true } }),
-    },
-  );
+    );
 
-  if (!response.ok) {
-    throw new Error(`HuggingFace API error: ${response.status} ${response.statusText}`);
+    if (!response.ok) return null;
+
+    const data: unknown = await response.json();
+    const embedding =
+      Array.isArray(data) && Array.isArray((data as unknown[][])[0])
+        ? (data as number[][])[0]
+        : (data as number[]);
+
+    if (!Array.isArray(embedding) || typeof embedding[0] !== "number") return null;
+    if (embedding.length !== 768) return null;
+
+    return embedding;
+  } catch {
+    return null;
   }
-
-  const data: unknown = await response.json();
-
-  if (!Array.isArray(data)) {
-    throw new Error("Unexpected response shape from HuggingFace API");
-  }
-
-  // Sentence-transformers models return [[...embedding...]]
-  const embedding = Array.isArray(data[0]) ? (data[0] as number[]) : (data as number[]);
-
-  if (embedding.length !== 768) {
-    throw new Error(`Expected 768-dim embedding, got ${embedding.length}`);
-  }
-
-  return embedding;
 }
 
 export type SemanticPaperResult = {
@@ -50,6 +53,8 @@ export async function semanticSearchPapers(
   limit = 10,
 ): Promise<SemanticPaperResult[]> {
   const embedding = await embedQuery(query);
+  if (!embedding) throw new Error("Embedding unavailable");
+
   const client = createServiceClient();
   const { data, error } = await client.rpc("match_papers", {
     query_embedding: embedding,

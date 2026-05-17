@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createServiceClient } from "@/lib/supabase/server";
+import { stripHtml } from "@/lib/utils/format";
 
 export type MatchedPaper = {
   id: number;
@@ -10,56 +11,87 @@ export type MatchedPaper = {
   journal: string | null;
   year: number | null;
   doi: string | null;
-  similarity: number;
+  similarity?: number;
 };
 
-async function embedQuery(text: string): Promise<number[]> {
-  const response = await fetch(
-    "https://api-inference.huggingface.co/pipeline/feature-extraction/NeuML/pubmedbert-base-embeddings",
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "User-Agent": "EchoBase/1.0",
+// ── embedding via HuggingFace (optional -- falls back to keyword if unavailable) ──
+
+async function embedQuery(text: string): Promise<number[] | null> {
+  const hfToken = process.env.HF_TOKEN ?? process.env.HUGGINGFACE_TOKEN;
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    "User-Agent": "EchoBase/1.0",
+  };
+  if (hfToken) headers["Authorization"] = `Bearer ${hfToken}`;
+
+  try {
+    const response = await fetch(
+      "https://api-inference.huggingface.co/pipeline/feature-extraction/NeuML/pubmedbert-base-embeddings",
+      {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ inputs: text, options: { wait_for_model: true } }),
+        signal: AbortSignal.timeout(10_000),
       },
-      body: JSON.stringify({ inputs: text, options: { wait_for_model: true } }),
-    },
-  );
+    );
 
-  if (!response.ok) {
-    throw new Error(`HuggingFace API error: ${response.status}`);
+    if (!response.ok) return null;
+
+    const data: unknown = await response.json();
+    const embedding = Array.isArray(data) && Array.isArray((data as unknown[][])[0])
+      ? (data as number[][])[0]
+      : (data as number[]);
+
+    if (!Array.isArray(embedding) || typeof embedding[0] !== "number") return null;
+    if (embedding.length !== 768) return null;
+
+    return embedding;
+  } catch {
+    return null;
   }
-
-  const data: unknown = await response.json();
-
-  // HF returns the embedding directly as a flat array, or nested as [[...]]
-  let embedding: unknown;
-  if (Array.isArray(data) && Array.isArray((data as unknown[])[0])) {
-    embedding = (data as unknown[][])[0];
-  } else {
-    embedding = data;
-  }
-
-  if (
-    !Array.isArray(embedding) ||
-    embedding.length === 0 ||
-    typeof (embedding as unknown[])[0] !== "number"
-  ) {
-    throw new Error("HuggingFace API returned an unexpected response format");
-  }
-
-  return embedding as number[];
 }
 
+// ── paper retrieval: semantic (preferred) or keyword (fallback) ──
+
+async function retrievePapers(question: string): Promise<{ papers: MatchedPaper[]; method: string }> {
+  const embedding = await embedQuery(question);
+
+  if (embedding) {
+    try {
+      const client = createServiceClient();
+      const { data, error } = await client.rpc("match_papers", {
+        query_embedding: embedding,
+        match_count: 8,
+        match_threshold: 0.1,
+      });
+      if (!error && data && (data as MatchedPaper[]).length > 0) {
+        return { papers: data as MatchedPaper[], method: "semantic" };
+      }
+    } catch { /* fall through to keyword */ }
+  }
+
+  // Keyword fallback: use full-text search over title + abstract
+  const client = await createClient();
+  const { data } = await client
+    .from("papers")
+    .select("id, pmid, title, abstract, journal, year, doi")
+    .textSearch("title", question.split(" ").filter(w => w.length > 3).join(" | "), {
+      type: "plain",
+      config: "english",
+    })
+    .order("year", { ascending: false })
+    .limit(8);
+
+  return { papers: (data ?? []) as MatchedPaper[], method: "keyword" };
+}
+
+// ── main handler ──
+
 export async function POST(request: Request) {
-  // Check for Anthropic API key early
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
     return NextResponse.json(
-      {
-        error:
-          "ANTHROPIC_API_KEY is not configured. Add it to your environment variables to enable AI Q&A.",
-      },
+      { error: "ANTHROPIC_API_KEY is not configured." },
       { status: 503 },
     );
   }
@@ -68,104 +100,56 @@ export async function POST(request: Request) {
   try {
     const body = (await request.json()) as { question?: unknown };
     if (typeof body.question !== "string" || !body.question.trim()) {
-      return NextResponse.json(
-        { error: "A non-empty question string is required." },
-        { status: 400 },
-      );
+      return NextResponse.json({ error: "A non-empty question is required." }, { status: 400 });
     }
     question = body.question.trim();
   } catch {
     return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
   }
 
-  // Step 1: Embed the question
-  let embedding: number[];
-  try {
-    embedding = await embedQuery(question);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "Unknown error";
-    return NextResponse.json(
-      { error: `Failed to generate embedding: ${message}` },
-      { status: 503 },
-    );
-  }
-
-  // Step 2: Retrieve relevant papers via Supabase RPC
-  let papers: MatchedPaper[];
-  try {
-    const supabase = await createClient();
-    const { data, error } = await supabase.rpc("match_papers", {
-      query_embedding: embedding,
-      match_count: 8,
-      match_threshold: 0.1,
-    });
-
-    if (error) {
-      throw new Error(error.message);
-    }
-
-    papers = (data ?? []) as MatchedPaper[];
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "Unknown error";
-    return NextResponse.json(
-      { error: `Failed to retrieve papers: ${message}` },
-      { status: 503 },
-    );
-  }
+  const { papers, method } = await retrievePapers(question);
 
   if (papers.length === 0) {
     return NextResponse.json({
-      answer:
-        "No relevant papers were found in the database for this question.",
+      answer: "No relevant papers were found for this question.",
       papers: [],
+      method,
     });
   }
 
-  // Step 3: Build context string (truncate abstracts to 300 chars each)
+  // Build context
   const papersContext = papers
-    .map((p) => {
+    .map((p, i) => {
       const abstract = p.abstract
-        ? p.abstract.length > 300
-          ? `${p.abstract.slice(0, 300)}...`
-          : p.abstract
+        ? p.abstract.length > 300 ? `${p.abstract.slice(0, 300)}...` : p.abstract
         : "No abstract available.";
-      return `PMID: ${p.pmid} | ${p.title} (${p.year ?? "year unknown"})\n${abstract}`;
+      return `[${i + 1}] PMID:${p.pmid} (${p.year ?? "n.d."}) ${stripHtml(p.title)}\n${abstract}`;
     })
     .join("\n\n");
 
-  // Step 4: Call Claude
-  const prompt = `You are a scientific assistant specializing in bat (Chiroptera) biology.
-Answer the question using ONLY the provided paper excerpts.
-Cite papers inline as [PMID: 12345678].
-If the papers don't contain enough information, say so clearly.
-Keep answers concise -- 2-4 sentences per point.
+  const systemPrompt = `You are a scientific assistant specializing in bat (Chiroptera) biology.
+Answer questions using ONLY the provided paper excerpts.
+Cite papers inline using their PMID as [PMID:XXXXXXXX].
+If the papers lack enough information, say so clearly.
+Keep answers concise -- 2-4 sentences per point. No bullet lists unless the question asks for a list.`;
 
-Question: ${question}
+  const userMessage = `Question: ${question}\n\nPapers:\n${papersContext}`;
 
-Papers:
-${papersContext}`;
-
-  let answer: string;
   try {
-    const client = new Anthropic({ apiKey });
-    const message = await client.messages.create({
+    const anthropic = new Anthropic({ apiKey });
+    const message = await anthropic.messages.create({
       model: "claude-sonnet-4-6",
       max_tokens: 1024,
-      messages: [{ role: "user", content: prompt }],
+      system: systemPrompt,
+      messages: [{ role: "user", content: userMessage }],
     });
 
-    const content = message.content[0];
-    if (content.type !== "text") {
-      throw new Error("Unexpected response type from Claude");
-    }
-    answer = content.text;
+    const answer =
+      message.content[0].type === "text" ? message.content[0].text : "";
+
+    return NextResponse.json({ answer, papers, method });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";
-    return NextResponse.json(
-      { error: `Failed to generate answer: ${message}` },
-      { status: 503 },
-    );
+    return NextResponse.json({ error: `Claude API error: ${message}` }, { status: 503 });
   }
-
-  return NextResponse.json({ answer, papers });
 }
