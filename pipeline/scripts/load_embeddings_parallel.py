@@ -23,9 +23,9 @@ from supabase import create_client
 ENV_FILE  = Path("/storage3/fs1/shandley/Active/echobase/.env")
 EMBED_DIR = Path("/storage3/fs1/shandley/Active/echobase/embeddings/protein")
 
-BATCH_SIZE   = 100   # records per request (larger now that HNSW index is dropped)
-MAX_WORKERS  = 4     # concurrent threads -- conservative to avoid connection contention
-MAX_RETRIES  = 5     # retries per batch on timeout
+BATCH_SIZE   = 500   # large batches -- minimises request overhead
+MAX_WORKERS  = 1     # single sequential connection -- no pooler contention
+MAX_RETRIES  = 10    # more retries for occasional timeouts
 
 
 def log(msg: str) -> None:
