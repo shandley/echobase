@@ -23,8 +23,8 @@ from supabase import create_client
 ENV_FILE  = Path("/storage3/fs1/shandley/Active/echobase/.env")
 EMBED_DIR = Path("/storage3/fs1/shandley/Active/echobase/embeddings/protein")
 
-BATCH_SIZE   = 20    # records per request (small to avoid timeouts)
-MAX_WORKERS  = 20    # concurrent threads
+BATCH_SIZE   = 50    # records per request
+MAX_WORKERS  = 6     # concurrent threads -- Supabase Micro allows 15 max connections
 MAX_RETRIES  = 5     # retries per batch on timeout
 
 
