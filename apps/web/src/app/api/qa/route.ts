@@ -26,7 +26,7 @@ async function embedQuery(text: string): Promise<number[] | null> {
 
   try {
     const response = await fetch(
-      "https://api-inference.huggingface.co/pipeline/feature-extraction/NeuML/pubmedbert-base-embeddings",
+      "https://api-inference.huggingface.co/models/NeuML/pubmedbert-base-embeddings",
       {
         method: "POST",
         headers,
