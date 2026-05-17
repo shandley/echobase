@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import ReactMarkdown from "react-markdown";
 import type { MatchedPaper } from "@/app/api/qa/route";
 
 const EXAMPLE_QUESTIONS = [
@@ -200,17 +201,28 @@ export function QAInterface() {
             >
               Answer
             </p>
-            <p
-              style={{
-                margin: 0,
-                color: "var(--color-text)",
-                fontSize: "0.9375rem",
-                lineHeight: 1.7,
-                whiteSpace: "pre-wrap",
-              }}
-            >
-              {result.answer}
-            </p>
+            <div style={{
+              color: "var(--color-text)",
+              fontSize: "0.9375rem",
+              lineHeight: 1.7,
+            }}>
+              <ReactMarkdown
+                components={{
+                  h1: ({ children }) => <h1 style={{ fontSize: "1.125rem", fontWeight: 600, margin: "1rem 0 0.5rem", color: "var(--color-text)" }}>{children}</h1>,
+                  h2: ({ children }) => <h2 style={{ fontSize: "1rem", fontWeight: 600, margin: "1rem 0 0.375rem", color: "var(--color-text)" }}>{children}</h2>,
+                  h3: ({ children }) => <h3 style={{ fontSize: "0.9375rem", fontWeight: 600, margin: "0.75rem 0 0.25rem", color: "var(--color-text)" }}>{children}</h3>,
+                  p: ({ children }) => <p style={{ margin: "0 0 0.75rem", color: "var(--color-text)" }}>{children}</p>,
+                  strong: ({ children }) => <strong style={{ fontWeight: 600, color: "var(--color-text)" }}>{children}</strong>,
+                  em: ({ children }) => <em style={{ fontStyle: "italic" }}>{children}</em>,
+                  ul: ({ children }) => <ul style={{ margin: "0 0 0.75rem 1.25rem", padding: 0 }}>{children}</ul>,
+                  ol: ({ children }) => <ol style={{ margin: "0 0 0.75rem 1.25rem", padding: 0 }}>{children}</ol>,
+                  li: ({ children }) => <li style={{ marginBottom: "0.25rem", color: "var(--color-text)" }}>{children}</li>,
+                  code: ({ children }) => <code style={{ fontFamily: "var(--font-mono)", fontSize: "0.875em", backgroundColor: "var(--color-surface)", padding: "0.1em 0.3em", borderRadius: "2px" }}>{children}</code>,
+                }}
+              >
+                {result.answer}
+              </ReactMarkdown>
+            </div>
           </div>
 
           {/* Source papers */}
