@@ -59,7 +59,14 @@ export default async function Home() {
         EchoBase integrates annotated genome assemblies, protein sequences, and
         scientific literature across 50 Chiroptera species. Sequence similarity
         via language model embeddings; cross-database entity linking; AI-assisted
-        literature synthesis.
+        literature synthesis; interactive{" "}
+        <a
+          href="/taxonomy"
+          style={{ color: "var(--color-accent)", textDecoration: "none" }}
+        >
+          phylogeny browser
+        </a>{" "}
+        for the full order.
       </p>
 
       <div style={{ display: "flex", alignItems: "center", gap: "1.5rem" }}>

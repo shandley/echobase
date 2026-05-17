@@ -17,6 +17,7 @@ const NAV_LINKS = [
   { href: "/search",   label: "Genes",    active: true },
   { href: "/search",   label: "Proteins", active: true },
   { href: "/papers",   label: "Papers",   active: true },
+  { href: "/taxonomy", label: "Taxonomy", active: true },
   { href: "/search",   label: "Search",   active: true },
 ];
 

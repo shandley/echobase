@@ -389,6 +389,18 @@ export default async function SpeciesDetailPage({ params }: Props) {
                   {species.ncbi_tax_id}
                 </a>
               </div>
+              <div style={{ paddingTop: "0.5rem" }}>
+                <Link
+                  href="/taxonomy"
+                  style={{
+                    fontSize: "0.8125rem",
+                    color: "var(--color-text-secondary)",
+                    textDecoration: "none",
+                  }}
+                >
+                  View in taxonomy browser →
+                </Link>
+              </div>
             </div>
           </section>
 
