@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { searchSpecies, searchPapers } from "@/lib/supabase/queries";
+import { semanticSearchPapers } from "@/lib/actions/search";
+import type { SemanticPaperResult } from "@/lib/actions/search";
 import { formatGenomeSize, stripHtml } from "@/lib/utils/format";
 import { SearchBox } from "@/components/SearchBox";
 import type { Json } from "@/lib/supabase/types";
@@ -58,13 +60,31 @@ function AssemblyBadge({ level }: { level: string | null }) {
   );
 }
 
+type PaperSearchResult =
+  | { kind: "semantic"; results: SemanticPaperResult[] }
+  | { kind: "keyword"; results: Awaited<ReturnType<typeof searchPapers>> };
+
+async function fetchPaperResults(query: string): Promise<PaperSearchResult> {
+  try {
+    const results = await semanticSearchPapers(query, 20);
+    return { kind: "semantic", results };
+  } catch {
+    // HF API unavailable or rate-limited — fall back to keyword search
+    const results = await searchPapers(query);
+    return { kind: "keyword", results };
+  }
+}
+
 export default async function SearchPage({ searchParams }: Props) {
   const { q } = await searchParams;
   const query = q?.trim() ?? "";
 
-  const [speciesResults, paperResults] = query
-    ? await Promise.all([searchSpecies(query), searchPapers(query)])
-    : [[], []];
+  const [speciesResults, paperSearch] = query
+    ? await Promise.all([searchSpecies(query), fetchPaperResults(query)])
+    : [[], { kind: "keyword" as const, results: [] }];
+
+  const paperResults = paperSearch.results;
+  const isSemantic = paperSearch.kind === "semantic";
 
   return (
     <div style={{ maxWidth: "72rem", margin: "0 auto", padding: "2.5rem 1.5rem" }}>
@@ -244,6 +264,19 @@ export default async function SearchPage({ searchParams }: Props) {
               }}>
                 {paperResults.length}
               </span>
+              {isSemantic && (
+                <span style={{
+                  marginLeft: "0.75rem",
+                  fontSize: "0.6875rem",
+                  fontWeight: 400,
+                  letterSpacing: "0.02em",
+                  textTransform: "none",
+                  color: "var(--color-text-tertiary)",
+                  fontStyle: "italic",
+                }}>
+                  Results ranked by semantic similarity
+                </span>
+              )}
             </h2>
 
             {paperResults.length === 0 ? (
@@ -256,61 +289,76 @@ export default async function SearchPage({ searchParams }: Props) {
                 borderRadius: "4px",
                 overflow: "hidden",
               }}>
-                {paperResults.map((paper, i) => (
-                  <Link
-                    key={paper.id}
-                    href={`/papers/${paper.pmid}`}
-                    className={i % 2 === 0 ? "paper-row-even" : "paper-row-odd"}
-                    style={{
-                      display: "grid",
-                      gridTemplateColumns: "4rem 1fr auto",
-                      gap: "1rem",
-                      alignItems: "start",
-                      padding: "0.625rem 1rem",
-                      borderBottom: i < paperResults.length - 1
-                        ? "1px solid var(--color-border-subtle)"
-                        : "none",
-                      textDecoration: "none",
-                    }}
-                  >
-                    {/* Year */}
-                    <span style={{
-                      fontFamily: "var(--font-mono)",
-                      fontSize: "0.8125rem",
-                      color: "var(--color-text-secondary)",
-                      fontVariantNumeric: "tabular-nums",
-                      whiteSpace: "nowrap",
-                      paddingTop: "0.1rem",
-                    }}>
-                      {paper.year ?? "—"}
-                    </span>
-
-                    {/* Title + journal */}
-                    <div>
+                {paperResults.map((paper, i) => {
+                  const similarity = isSemantic
+                    ? (paper as SemanticPaperResult).similarity
+                    : null;
+                  return (
+                    <Link
+                      key={paper.id}
+                      href={`/papers/${paper.pmid}`}
+                      className={i % 2 === 0 ? "paper-row-even" : "paper-row-odd"}
+                      style={{
+                        display: "grid",
+                        gridTemplateColumns: "4rem 1fr auto",
+                        gap: "1rem",
+                        alignItems: "start",
+                        padding: "0.625rem 1rem",
+                        borderBottom: i < paperResults.length - 1
+                          ? "1px solid var(--color-border-subtle)"
+                          : "none",
+                        textDecoration: "none",
+                      }}
+                    >
+                      {/* Year */}
                       <span style={{
-                        color: "var(--color-text)",
-                        fontSize: "0.875rem",
-                        display: "block",
-                        lineHeight: 1.45,
+                        fontFamily: "var(--font-mono)",
+                        fontSize: "0.8125rem",
+                        color: "var(--color-text-secondary)",
+                        fontVariantNumeric: "tabular-nums",
+                        whiteSpace: "nowrap",
+                        paddingTop: "0.1rem",
                       }}>
-                        {stripHtml(paper.title)}
+                        {paper.year ?? "—"}
                       </span>
-                      {paper.journal && (
-                        <span style={{
-                          fontSize: "0.75rem",
-                          color: "var(--color-text-tertiary)",
-                          display: "block",
-                          marginTop: "0.15rem",
-                        }}>
-                          {paper.journal}
-                        </span>
-                      )}
-                    </div>
 
-                    {/* Arrow */}
-                    <span style={{ color: "var(--color-text-tertiary)", paddingTop: "0.1rem" }}>↗</span>
-                  </Link>
-                ))}
+                      {/* Title + journal + semantic label */}
+                      <div>
+                        <span style={{
+                          color: "var(--color-text)",
+                          fontSize: "0.875rem",
+                          display: "block",
+                          lineHeight: 1.45,
+                        }}>
+                          {stripHtml(paper.title)}
+                        </span>
+                        <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginTop: "0.15rem" }}>
+                          {paper.journal && (
+                            <span style={{
+                              fontSize: "0.75rem",
+                              color: "var(--color-text-tertiary)",
+                            }}>
+                              {paper.journal}
+                            </span>
+                          )}
+                          {similarity !== null && (
+                            <span style={{
+                              fontSize: "0.6875rem",
+                              color: "var(--color-text-tertiary)",
+                              fontFamily: "var(--font-mono)",
+                              fontVariantNumeric: "tabular-nums",
+                            }}>
+                              {Math.round(similarity * 100)}% match
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Arrow */}
+                      <span style={{ color: "var(--color-text-tertiary)", paddingTop: "0.1rem" }}>↗</span>
+                    </Link>
+                  );
+                })}
               </div>
             )}
           </section>

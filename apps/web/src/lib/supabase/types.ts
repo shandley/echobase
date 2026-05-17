@@ -386,7 +386,23 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      match_papers: {
+        Args: {
+          query_embedding: number[]
+          match_count?: number
+          match_threshold?: number
+        }
+        Returns: Array<{
+          id: number
+          pmid: number
+          title: string
+          abstract: string | null
+          journal: string | null
+          year: number | null
+          doi: string | null
+          similarity: number
+        }>
+      }
     }
     Enums: {
       [_ in never]: never
