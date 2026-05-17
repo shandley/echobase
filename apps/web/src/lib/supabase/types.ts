@@ -388,20 +388,20 @@ export type Database = {
     Functions: {
       match_papers: {
         Args: {
-          query_embedding: number[]
           match_count?: number
           match_threshold?: number
+          query_embedding: string
         }
-        Returns: Array<{
+        Returns: {
+          abstract: string
+          doi: string
           id: number
+          journal: string
           pmid: number
-          title: string
-          abstract: string | null
-          journal: string | null
-          year: number | null
-          doi: string | null
           similarity: number
-        }>
+          title: string
+          year: number
+        }[]
       }
     }
     Enums: {

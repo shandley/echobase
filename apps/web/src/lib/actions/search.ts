@@ -2,34 +2,28 @@
 import { createServiceClient } from "@/lib/supabase/server";
 
 async function embedQuery(text: string): Promise<number[] | null> {
-  const hfToken = process.env.HF_TOKEN ?? process.env.HUGGINGFACE_TOKEN;
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-    "User-Agent": "EchoBase/1.0",
-  };
-  if (hfToken) headers["Authorization"] = `Bearer ${hfToken}`;
+  const apiKey = process.env.VOYAGE_API_KEY;
+  if (!apiKey) return null;
 
   try {
-    const response = await fetch(
-      "https://api-inference.huggingface.co/models/NeuML/pubmedbert-base-embeddings",
-      {
-        method: "POST",
-        headers,
-        body: JSON.stringify({ inputs: text, options: { wait_for_model: true } }),
-        signal: AbortSignal.timeout(8_000),
+    const response = await fetch("https://api.voyageai.com/v1/embeddings", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${apiKey}`,
       },
-    );
+      body: JSON.stringify({ model: "voyage-3", input: [text] }),
+      signal: AbortSignal.timeout(10_000),
+    });
 
     if (!response.ok) return null;
 
-    const data: unknown = await response.json();
-    const embedding =
-      Array.isArray(data) && Array.isArray((data as unknown[][])[0])
-        ? (data as number[][])[0]
-        : (data as number[]);
+    const data = await response.json() as {
+      data: Array<{ embedding: number[]; index: number }>;
+    };
 
-    if (!Array.isArray(embedding) || typeof embedding[0] !== "number") return null;
-    if (embedding.length !== 768) return null;
+    const embedding = data.data?.[0]?.embedding;
+    if (!Array.isArray(embedding) || embedding.length !== 1024) return null;
 
     return embedding;
   } catch {
@@ -53,11 +47,11 @@ export async function semanticSearchPapers(
   limit = 10,
 ): Promise<SemanticPaperResult[]> {
   const embedding = await embedQuery(query);
-  if (!embedding) throw new Error("Embedding unavailable");
+  if (!embedding) throw new Error("Voyage AI embedding unavailable");
 
   const client = createServiceClient();
   const { data, error } = await client.rpc("match_papers", {
-    query_embedding: embedding,
+    query_embedding: embedding as unknown as string,
     match_count: limit,
     match_threshold: 0.1,
   });
