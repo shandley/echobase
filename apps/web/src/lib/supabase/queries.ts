@@ -226,3 +226,57 @@ export async function getSpeciesById(id: number): Promise<Species | null> {
   if (error) return null;
   return data as Species;
 }
+
+export type Gene = Database["public"]["Tables"]["genes"]["Row"];
+
+export type GeneWithSpecies = Gene & {
+  species: { scientific_name: string | null; ncbi_tax_id: number | null } | null;
+};
+
+export async function searchGenes(query: string, limit = 20): Promise<GeneWithSpecies[]> {
+  const client = await createClient();
+  const { data } = await client
+    .from("genes")
+    .select("*, species(scientific_name, ncbi_tax_id)")
+    .or(
+      `symbol.plfts(english).${query},name.plfts(english).${query},description.plfts(english).${query}`,
+    )
+    .limit(limit);
+
+  return (data ?? []) as GeneWithSpecies[];
+}
+
+export async function getGeneById(id: number): Promise<Gene | null> {
+  const client = await createClient();
+  const { data, error } = await client
+    .from("genes")
+    .select("*")
+    .eq("id", id)
+    .single();
+
+  if (error) return null;
+  return data as Gene;
+}
+
+export async function getGenesBySpecies(speciesId: number, limit = 50, offset = 0): Promise<Gene[]> {
+  const client = await createClient();
+  const { data, error } = await client
+    .from("genes")
+    .select("*")
+    .eq("species_id", speciesId)
+    .order("symbol")
+    .range(offset, offset + limit - 1);
+
+  if (error) return [];
+  return (data ?? []) as Gene[];
+}
+
+export async function getGeneCountForSpecies(speciesId: number): Promise<number> {
+  const client = await createClient();
+  const { count } = await client
+    .from("genes")
+    .select("id", { count: "exact", head: true })
+    .eq("species_id", speciesId);
+
+  return count ?? 0;
+}

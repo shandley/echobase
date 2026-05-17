@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import {
   getSpeciesByTaxId,
   getProteinCountForSpecies,
+  getGeneCountForSpecies,
   getRelatedSpecies,
   getPapersForSpecies,
   getPaperCountForSpecies,
@@ -153,9 +154,10 @@ export default async function SpeciesDetailPage({ params }: Props) {
   const species = await getSpeciesByTaxId(taxIdNum);
   if (!species) notFound();
 
-  const [relatedSpecies, proteinCount, recentPapers, paperCount] = await Promise.all([
+  const [relatedSpecies, proteinCount, geneCount, recentPapers, paperCount] = await Promise.all([
     getRelatedSpecies(species.genus ?? "", taxIdNum),
     getProteinCountForSpecies(species.id),
+    getGeneCountForSpecies(species.id),
     getPapersForSpecies(species.id, 6),
     getPaperCountForSpecies(species.id),
   ]);
@@ -250,7 +252,7 @@ export default async function SpeciesDetailPage({ params }: Props) {
       {/* Stats strip */}
       <div style={{
         display: "grid",
-        gridTemplateColumns: "repeat(4, 1fr)",
+        gridTemplateColumns: "repeat(5, 1fr)",
         border: "1px solid var(--color-border)",
         borderRadius: "4px",
         overflow: "hidden",
@@ -258,8 +260,9 @@ export default async function SpeciesDetailPage({ params }: Props) {
       }}>
         <Stat label="Genome size" value={formatGenomeSize(species.genome_size_bp)} />
         <Stat label="Protein-coding" value={formatNumber(meta.protein_coding_genes)} />
+        <Stat label="Gene count" value={geneCount > 0 ? formatNumber(geneCount) : "—"} />
         <Stat
-          label="In EchoBase"
+          label="Proteins"
           value={proteinCount > 0 ? formatNumber(proteinCount) : "Loading"}
           href={`/species/${taxIdNum}/proteins`}
         />

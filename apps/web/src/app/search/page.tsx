@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { searchSpecies, searchPapers } from "@/lib/supabase/queries";
+import { searchSpecies, searchPapers, searchGenes, type GeneWithSpecies } from "@/lib/supabase/queries";
 import { semanticSearchPapers } from "@/lib/actions/search";
 import type { SemanticPaperResult } from "@/lib/actions/search";
 import { formatGenomeSize, stripHtml } from "@/lib/utils/format";
@@ -79,9 +79,9 @@ export default async function SearchPage({ searchParams }: Props) {
   const { q } = await searchParams;
   const query = q?.trim() ?? "";
 
-  const [speciesResults, paperSearch] = query
-    ? await Promise.all([searchSpecies(query), fetchPaperResults(query)])
-    : [[], { kind: "keyword" as const, results: [] }];
+  const [speciesResults, geneResults, paperSearch] = query
+    ? await Promise.all([searchSpecies(query), searchGenes(query), fetchPaperResults(query)])
+    : [[], [] as GeneWithSpecies[], { kind: "keyword" as const, results: [] }];
 
   const paperResults = paperSearch.results;
   const isSemantic = paperSearch.kind === "semantic";
@@ -238,10 +238,100 @@ export default async function SearchPage({ searchParams }: Props) {
               borderBottom: "1px solid var(--color-border-subtle)",
             }}>
               Genes
+              <span style={{
+                marginLeft: "0.625rem",
+                fontFamily: "var(--font-mono)",
+                color: geneResults.length > 0 ? "var(--color-accent)" : "var(--color-text-tertiary)",
+              }}>
+                {geneResults.length}
+              </span>
             </h2>
-            <p style={{ fontSize: "0.875rem", color: "var(--color-text-tertiary)" }}>
-              Gene search coming soon
-            </p>
+
+            {geneResults.length === 0 ? (
+              <p style={{ fontSize: "0.875rem", color: "var(--color-text-tertiary)" }}>
+                No genes matched &ldquo;{query}&rdquo;
+              </p>
+            ) : (
+              <div style={{
+                border: "1px solid var(--color-border)",
+                borderRadius: "4px",
+                overflow: "hidden",
+              }}>
+                {geneResults.map((gene, i) => (
+                  <Link
+                    key={gene.id}
+                    href={`/genes/${gene.id}`}
+                    className={i % 2 === 0 ? "gene-row-even" : "gene-row-odd"}
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "8rem 1fr auto auto",
+                      gap: "1rem",
+                      alignItems: "center",
+                      padding: "0.625rem 1rem",
+                      borderBottom: i < geneResults.length - 1
+                        ? "1px solid var(--color-border-subtle)"
+                        : "none",
+                      textDecoration: "none",
+                    }}
+                  >
+                    {/* Symbol */}
+                    <span style={{
+                      fontFamily: "var(--font-mono)",
+                      fontWeight: 600,
+                      fontSize: "0.875rem",
+                      color: "var(--color-text)",
+                      whiteSpace: "nowrap",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                    }}>
+                      {gene.symbol ?? `gene:${gene.id}`}
+                    </span>
+
+                    {/* Gene name */}
+                    <span style={{
+                      fontSize: "0.8125rem",
+                      color: "var(--color-text-secondary)",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                    }}>
+                      {gene.name ?? ""}
+                    </span>
+
+                    {/* Biotype badge */}
+                    {gene.gene_biotype ? (
+                      <span style={{
+                        display: "inline-block",
+                        backgroundColor: "var(--color-badge-other-bg)",
+                        color: "var(--color-badge-other-text)",
+                        fontSize: "0.6875rem",
+                        fontWeight: 500,
+                        letterSpacing: "0.03em",
+                        padding: "0.2rem 0.45rem",
+                        borderRadius: "2px",
+                        lineHeight: 1.4,
+                        fontFamily: "var(--font-mono)",
+                        whiteSpace: "nowrap",
+                      }}>
+                        {gene.gene_biotype}
+                      </span>
+                    ) : (
+                      <span />
+                    )}
+
+                    {/* Species name (italic) */}
+                    <span style={{
+                      fontSize: "0.75rem",
+                      color: "var(--color-text-tertiary)",
+                      fontStyle: "italic",
+                      whiteSpace: "nowrap",
+                    }}>
+                      {gene.species?.scientific_name ?? ""}
+                    </span>
+                  </Link>
+                ))}
+              </div>
+            )}
           </section>
 
           {/* Papers section */}

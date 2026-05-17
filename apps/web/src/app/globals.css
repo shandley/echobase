@@ -66,3 +66,9 @@ body {
 .paper-row-odd  { background-color: var(--color-surface); }
 .paper-row-even:hover,
 .paper-row-odd:hover { background-color: var(--color-elevated); }
+
+/* Genes table -- same pattern */
+.gene-row-even { background-color: var(--color-base); }
+.gene-row-odd  { background-color: var(--color-surface); }
+.gene-row-even:hover,
+.gene-row-odd:hover { background-color: var(--color-elevated); }
