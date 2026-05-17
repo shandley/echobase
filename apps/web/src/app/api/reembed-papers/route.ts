@@ -78,7 +78,7 @@ export async function POST(request: Request) {
     embedding: embeddings[i] as unknown as string,
   }));
 
-  await client.from("papers").upsert(upsertRows, { onConflict: "id" }).execute();
+  await client.from("papers").upsert(upsertRows, { onConflict: "id" });
 
   const nextOffset = offset + papers.length;
   const done = nextOffset >= total;

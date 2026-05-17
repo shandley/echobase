@@ -2,7 +2,7 @@
 import { createServiceClient } from "@/lib/supabase/server";
 
 async function embedQuery(text: string): Promise<number[] | null> {
-  // Try Voyage AI first (confirmed working from Vercel)
+  // Try Voyage AI first -- confirmed working from Vercel infra
   const voyageKey = process.env.VOYAGE_API_KEY;
   if (voyageKey) {
     try {
@@ -20,8 +20,8 @@ async function embedQuery(text: string): Promise<number[] | null> {
     } catch { /* fall through */ }
   }
 
+  // HF bge-large fallback (likely 404 but kept for future)
   const hfToken = process.env.HF_TOKEN ?? process.env.HUGGINGFACE_TOKEN;
-
   if (hfToken) {
     try {
       const response = await fetch(
@@ -38,23 +38,6 @@ async function embedQuery(text: string): Promise<number[] | null> {
         const embedding = Array.isArray(data) && Array.isArray((data as number[][])[0])
           ? (data as number[][])[0] : (data as number[]);
         if (Array.isArray(embedding) && embedding.length === 1024) return embedding;
-      }
-    } catch { /* fall through */ }
-  }
-
-  const voyageKey = process.env.VOYAGE_API_KEY;
-  if (voyageKey) {
-    try {
-      const response = await fetch("https://api.voyageai.com/v1/embeddings", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${voyageKey}` },
-        body: JSON.stringify({ model: "voyage-3", input: [text] }),
-        signal: AbortSignal.timeout(10_000),
-      });
-      if (response.ok) {
-        const data = await response.json() as { data: Array<{ embedding: number[] }> };
-        const emb = data.data?.[0]?.embedding;
-        if (Array.isArray(emb) && emb.length === 1024) return emb;
       }
     } catch { /* fall through */ }
   }
