@@ -24,7 +24,8 @@ ENV_FILE = Path("/storage3/fs1/shandley/Active/echobase/.env")
 
 VOYAGE_MODEL  = "voyage-3"
 VOYAGE_URL    = "https://api.voyageai.com/v1/embeddings"
-VOYAGE_BATCH  = 128   # Voyage API max per request
+VOYAGE_BATCH  = 80    # texts per request (free tier: 3 RPM, ~100K tokens/min)
+RATE_LIMIT_SLEEP = 22 # seconds between requests (3 RPM = 1 per 20s, +2s buffer)
 DB_PAGE_SIZE  = 1000  # Supabase row cap
 DB_UPSERT     = 200   # records per upsert (1024-dim × float32 ≈ 4KB/record)
 
@@ -110,7 +111,7 @@ def main() -> None:
             rate = total / max(time.time() - t0, 1)
             log(f"  {total:,}/{len(papers):,} embedded ({rate:.0f} papers/s)")
 
-        time.sleep(0.1)  # gentle rate limiting
+        time.sleep(RATE_LIMIT_SLEEP)  # respect 3 RPM free tier limit
 
     if upsert_buf:
         client.from_("papers").upsert(upsert_buf, on_conflict="id").execute()
