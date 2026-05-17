@@ -35,7 +35,8 @@ ENV_FILE  = Path("/storage3/fs1/shandley/Active/echobase/.env")
 EMBED_DIR = Path("/storage3/fs1/shandley/Active/echobase/embeddings/protein")
 
 ID_FETCH_BATCH  = 1000   # accessions per SELECT … IN (…) call
-UPSERT_BATCH    = 200    # records per upsert (1280-dim float32 ≈ 5 KB each)
+UPSERT_BATCH    = 50     # records per upsert -- smaller to avoid statement timeout
+                         # (50 × 1280-dim × 4 bytes = 256 KB per request, safe)
 MAX_RETRIES     = 3
 RETRY_BASE_SECS = 2.0    # exponential backoff: 2, 4, 8 seconds
 
