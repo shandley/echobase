@@ -35,18 +35,23 @@ def log(msg: str) -> None:
 
 
 def embed_texts(texts: list[str], api_key: str) -> list[list[float]]:
-    """Embed a batch of texts with Voyage AI, return list of 1024-dim vectors."""
-    resp = requests.post(
-        VOYAGE_URL,
-        headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-        json={"model": VOYAGE_MODEL, "input": texts},
-        timeout=60,
-    )
-    resp.raise_for_status()
-    data = resp.json()
-    # Sort by index to maintain order
-    items = sorted(data["data"], key=lambda x: x["index"])
-    return [item["embedding"] for item in items]
+    """Embed a batch of texts with Voyage AI, return list of 1024-dim vectors.
+    Retries indefinitely on 429 (rate limit) with 65s wait; raises on other errors."""
+    while True:
+        resp = requests.post(
+            VOYAGE_URL,
+            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+            json={"model": VOYAGE_MODEL, "input": texts},
+            timeout=60,
+        )
+        if resp.status_code == 429:
+            log("  Rate limited -- waiting 65s for limit to reset...")
+            time.sleep(65)
+            continue
+        resp.raise_for_status()
+        data = resp.json()
+        items = sorted(data["data"], key=lambda x: x["index"])
+        return [item["embedding"] for item in items]
 
 
 def main() -> None:
@@ -74,6 +79,8 @@ def main() -> None:
         offset += DB_PAGE_SIZE
 
     log(f"  {len(papers):,} papers to embed with {VOYAGE_MODEL}")
+    log("  Waiting 10s before first request...")
+    time.sleep(10)
 
     upsert_buf: list[dict] = []
     total = 0
@@ -86,15 +93,7 @@ def main() -> None:
             for r in chunk
         ]
 
-        for attempt in range(3):
-            try:
-                embeddings = embed_texts(texts, voyage_key)
-                break
-            except Exception as e:
-                if attempt == 2:
-                    raise
-                log(f"  Retry {attempt+1}: {e}")
-                time.sleep(5 * (attempt + 1))
+        embeddings = embed_texts(texts, voyage_key)
 
         for row, emb in zip(chunk, embeddings):
             upsert_buf.append({
