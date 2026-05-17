@@ -286,7 +286,7 @@ export function QAInterface() {
                           lineHeight: 1.45,
                         }}
                       >
-                        {paper.title}
+                        {paper.title?.replace(/<[^>]+>/g, "") ?? ""}
                       </span>
                       {paper.journal && (
                         <span

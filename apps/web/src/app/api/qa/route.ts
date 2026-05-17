@@ -14,39 +14,62 @@ export type MatchedPaper = {
   similarity?: number;
 };
 
-// ── embedding via HuggingFace (optional -- falls back to keyword if unavailable) ──
+// ── query embedding: bge-large-en-v1.5 via HF (same model as paper embeddings) ──
 
 async function embedQuery(text: string): Promise<number[] | null> {
-  const apiKey = process.env.VOYAGE_API_KEY;
-  if (!apiKey) return null;
+  const hfToken = process.env.HF_TOKEN ?? process.env.HUGGINGFACE_TOKEN;
 
-  try {
-    const response = await fetch("https://api.voyageai.com/v1/embeddings", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({ model: "voyage-3", input: [text] }),
-      signal: AbortSignal.timeout(10_000),
-    });
+  // Try bge-large via HF Inference API (matches paper embedding model)
+  if (hfToken) {
+    try {
+      const response = await fetch(
+        "https://api-inference.huggingface.co/models/BAAI/bge-large-en-v1.5",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${hfToken}`,
+          },
+          body: JSON.stringify({ inputs: text, options: { wait_for_model: true } }),
+          signal: AbortSignal.timeout(15_000),
+        },
+      );
 
-    if (!response.ok) return null;
-
-    const data = await response.json() as {
-      data: Array<{ embedding: number[]; index: number }>;
-    };
-
-    const embedding = data.data?.[0]?.embedding;
-    if (!Array.isArray(embedding) || embedding.length !== 1024) return null;
-
-    return embedding;
-  } catch {
-    return null;
+      if (response.ok) {
+        const data = await response.json() as unknown;
+        // HF returns flat array or nested [[...]]
+        const embedding = Array.isArray(data) && Array.isArray((data as number[][])[0])
+          ? (data as number[][])[0]
+          : (data as number[]);
+        if (Array.isArray(embedding) && embedding.length === 1024) {
+          return embedding;
+        }
+      }
+    } catch { /* fall through */ }
   }
+
+  // Fallback: try Voyage AI
+  const voyageKey = process.env.VOYAGE_API_KEY;
+  if (voyageKey) {
+    try {
+      const response = await fetch("https://api.voyageai.com/v1/embeddings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${voyageKey}` },
+        body: JSON.stringify({ model: "voyage-3", input: [text] }),
+        signal: AbortSignal.timeout(10_000),
+      });
+      if (response.ok) {
+        const data = await response.json() as { data: Array<{ embedding: number[] }> };
+        const emb = data.data?.[0]?.embedding;
+        if (Array.isArray(emb) && emb.length === 1024) return emb;
+      }
+    } catch { /* fall through */ }
+  }
+
+  return null;
 }
 
-// ── paper retrieval: semantic (preferred) or keyword (fallback) ──
+// ── paper retrieval ────────────────────────────────────────────────────────────
 
 async function retrievePapers(question: string): Promise<{ papers: MatchedPaper[]; method: string }> {
   const embedding = await embedQuery(question);
@@ -65,43 +88,31 @@ async function retrievePapers(question: string): Promise<{ papers: MatchedPaper[
     } catch { /* fall through to keyword */ }
   }
 
-  // Keyword fallback: ILIKE over title OR abstract for each meaningful word.
-  // Searches both columns with OR logic -- much better recall than title-only FTS.
+  // Keyword fallback
   const stopwords = new Set(["can", "you", "tell", "me", "about", "what", "how", "why",
     "the", "and", "for", "are", "with", "that", "this", "have", "from"]);
-  const keywords = question
-    .toLowerCase()
-    .split(/\s+/)
+  const keywords = question.toLowerCase().split(/\s+/)
     .filter(w => w.length > 4 && !stopwords.has(w));
 
   const client = await createClient();
-  let query = client
-    .from("papers")
-    .select("id, pmid, title, abstract, journal, year, doi")
-    .order("year", { ascending: false })
-    .limit(8);
+  let query = client.from("papers").select("id, pmid, title, abstract, journal, year, doi")
+    .order("year", { ascending: false }).limit(8);
 
   if (keywords.length > 0) {
-    const orFilter = keywords
-      .map(k => `title.ilike.%${k}%,abstract.ilike.%${k}%`)
-      .join(",");
+    const orFilter = keywords.map(k => `title.ilike.%${k}%,abstract.ilike.%${k}%`).join(",");
     query = query.or(orFilter);
   }
 
   const { data } = await query;
-
   return { papers: (data ?? []) as MatchedPaper[], method: "keyword" };
 }
 
-// ── main handler ──
+// ── main handler ──────────────────────────────────────────────────────────────
 
 export async function POST(request: Request) {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
-    return NextResponse.json(
-      { error: "ANTHROPIC_API_KEY is not configured." },
-      { status: 503 },
-    );
+    return NextResponse.json({ error: "ANTHROPIC_API_KEY is not configured." }, { status: 503 });
   }
 
   let question: string;
@@ -118,30 +129,20 @@ export async function POST(request: Request) {
   const { papers, method } = await retrievePapers(question);
 
   if (papers.length === 0) {
-    return NextResponse.json({
-      answer: "No relevant papers were found for this question.",
-      papers: [],
-      method,
-    });
+    return NextResponse.json({ answer: "No relevant papers were found for this question.", papers: [], method });
   }
 
-  // Build context
-  const papersContext = papers
-    .map((p, i) => {
-      const abstract = p.abstract
-        ? p.abstract.length > 300 ? `${p.abstract.slice(0, 300)}...` : p.abstract
-        : "No abstract available.";
-      return `[${i + 1}] PMID:${p.pmid} (${p.year ?? "n.d."}) ${stripHtml(p.title)}\n${abstract}`;
-    })
-    .join("\n\n");
+  const papersContext = papers.map((p, i) => {
+    const abstract = p.abstract
+      ? p.abstract.length > 300 ? `${p.abstract.slice(0, 300)}...` : p.abstract
+      : "No abstract available.";
+    return `[${i + 1}] PMID:${p.pmid} (${p.year ?? "n.d."}) ${stripHtml(p.title)}\n${abstract}`;
+  }).join("\n\n");
 
   const systemPrompt = `You are a scientific assistant specializing in bat (Chiroptera) biology.
 Answer questions using ONLY the provided paper excerpts.
-Cite papers inline using their PMID as [PMID:XXXXXXXX].
-If the papers lack enough information, say so clearly.
-Keep answers concise -- 2-4 sentences per point. No bullet lists unless the question asks for a list.`;
-
-  const userMessage = `Question: ${question}\n\nPapers:\n${papersContext}`;
+Cite papers inline as [PMID:XXXXXXXX]. If papers lack enough information, say so clearly.
+Keep answers concise -- 2-4 sentences per point.`;
 
   try {
     const anthropic = new Anthropic({ apiKey });
@@ -149,12 +150,9 @@ Keep answers concise -- 2-4 sentences per point. No bullet lists unless the ques
       model: "claude-sonnet-4-6",
       max_tokens: 1024,
       system: systemPrompt,
-      messages: [{ role: "user", content: userMessage }],
+      messages: [{ role: "user", content: `Question: ${question}\n\nPapers:\n${papersContext}` }],
     });
-
-    const answer =
-      message.content[0].type === "text" ? message.content[0].text : "";
-
+    const answer = message.content[0].type === "text" ? message.content[0].text : "";
     return NextResponse.json({ answer, papers, method });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";
