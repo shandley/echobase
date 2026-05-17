@@ -5,7 +5,6 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=16G
-#SBATCH --time=12:00:00
 #SBATCH --output=/storage3/fs1/shandley/Active/echobase/pipeline/logs/%j_load_embeddings.out
 
 echo "=== EchoBase Embedding Loader ==="
