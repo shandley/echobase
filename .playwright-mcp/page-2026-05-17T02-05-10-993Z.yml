@@ -1,0 +1,38 @@
+- generic [active] [ref=e1]:
+  - banner [ref=e2]:
+    - navigation [ref=e3]:
+      - link "EchoBase β" [ref=e4] [cursor=pointer]:
+        - /url: /
+        - text: EchoBase
+        - superscript [ref=e5]: β
+      - generic [ref=e6]:
+        - link "Species" [ref=e7] [cursor=pointer]:
+          - /url: /species
+        - link "Genes":
+          - /url: /genes
+        - link "Proteins" [ref=e8] [cursor=pointer]:
+          - /url: /search
+        - link "Papers" [ref=e9] [cursor=pointer]:
+          - /url: /papers
+        - link "Search" [ref=e10] [cursor=pointer]:
+          - /url: /search
+      - searchbox "Search…" [ref=e13]
+  - main [ref=e14]:
+    - generic [ref=e15]:
+      - paragraph [ref=e16]: AI Literature Q&A
+      - heading "Ask about bat biology" [level=1] [ref=e17]
+      - paragraph [ref=e18]: Semantic search across 9,999 bat biology papers. Claude synthesizes an answer from the most relevant abstracts and cites its sources.
+      - generic [ref=e19]:
+        - generic [ref=e20]:
+          - textbox "Ask a question about bat biology..." [ref=e21]
+          - generic [ref=e22]:
+            - generic [ref=e23]: Cmd+Enter to submit
+            - button "Ask" [disabled] [ref=e24]
+        - generic [ref=e25]:
+          - paragraph [ref=e26]: Example questions
+          - generic [ref=e27]:
+            - button "What is known about STING pathway evolution in bats?" [ref=e28] [cursor=pointer]
+            - button "How do bats tolerate viral infection?" [ref=e29] [cursor=pointer]
+            - button "What makes bat immune systems unique?" [ref=e30] [cursor=pointer]
+  - contentinfo [ref=e31]: "EchoBase · Chiroptera Genomics · Data: NCBI"
+  - alert [ref=e32]

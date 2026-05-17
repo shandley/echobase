@@ -14,12 +14,30 @@ export type MatchedPaper = {
   similarity?: number;
 };
 
-// ── query embedding: bge-large-en-v1.5 via HF (same model as paper embeddings) ──
+// ── query embedding: Voyage AI voyage-3 (matches paper embeddings after reembed) ──
 
 async function embedQuery(text: string): Promise<number[] | null> {
+  // Try Voyage AI first -- confirmed working from Vercel infra
+  const voyageKey = process.env.VOYAGE_API_KEY;
+  if (voyageKey) {
+    try {
+      const response = await fetch("https://api.voyageai.com/v1/embeddings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${voyageKey}` },
+        body: JSON.stringify({ model: "voyage-3", input: [text] }),
+        signal: AbortSignal.timeout(10_000),
+      });
+      if (response.ok) {
+        const data = await response.json() as { data: Array<{ embedding: number[] }> };
+        const emb = data.data?.[0]?.embedding;
+        if (Array.isArray(emb) && emb.length === 1024) return emb;
+      }
+    } catch { /* fall through */ }
+  }
+
   const hfToken = process.env.HF_TOKEN ?? process.env.HUGGINGFACE_TOKEN;
 
-  // Try bge-large via HF Inference API (matches paper embedding model)
+  // Try bge-large via HF (fallback)
   if (hfToken) {
     try {
       const response = await fetch(
