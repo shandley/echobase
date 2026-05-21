@@ -23,9 +23,9 @@ from supabase import create_client
 ENV_FILE  = Path("/storage3/fs1/shandley/Active/echobase/.env")
 EMBED_DIR = Path("/storage3/fs1/shandley/Active/echobase/embeddings/protein")
 
-BATCH_SIZE   = 500   # large batches -- minimises request overhead
-MAX_WORKERS  = 1     # single sequential connection -- no pooler contention
-MAX_RETRIES  = 10    # more retries for occasional timeouts
+BATCH_SIZE   = 25    # ~380 KB JSON -- safe payload size
+MAX_WORKERS  = 3     # three concurrent connections
+MAX_RETRIES  = 10    # retries for occasional timeouts
 
 
 def log(msg: str) -> None:
